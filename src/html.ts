@@ -75,13 +75,34 @@ export const h4:HTMLGenerator<HTMLHeadingElement> = newHtmlGenerator("h4")
 export const div:HTMLGenerator<HTMLDivElement> = newHtmlGenerator("div")
 export const button:HTMLGenerator<HTMLButtonElement> = newHtmlGenerator("button")
 export const span:HTMLGenerator<HTMLSpanElement> = newHtmlGenerator("span")
-export const input:HTMLGenerator<HTMLInputElement> = newHtmlGenerator("input")
 export const textarea:HTMLGenerator<HTMLTextAreaElement> = newHtmlGenerator("textarea")
 
 export const table:HTMLGenerator<HTMLTableElement> = newHtmlGenerator("table")
 export const tr:HTMLGenerator<HTMLTableRowElement> = newHtmlGenerator("tr")
 export const td:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("td")
 export const th:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("th")
+
+
+export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
+
+  const writable = cs.find(c=>c instanceof Writable) as Writable<string>
+
+  const el = html("input", ...cs) as HTMLInputElement
+
+  if (writable){
+    el.value = writable.get()
+    writable.subscribeLater((value)=>{
+      if (el.value !== value.toString()){
+        el.value = value.toString()
+      }
+    })
+    el.oninput = (e)=>{
+      writable.set((e.target as HTMLInputElement).value)
+    }
+  }
+  return el
+}
+
 
 
 export const popup = (dialogfield: HTMLElement)=>{

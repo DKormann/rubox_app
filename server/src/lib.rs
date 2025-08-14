@@ -53,7 +53,7 @@ pub struct AppData{
 
 #[reducer]
 pub fn publish(ctx: &ReducerContext, app:AppData){
-
+  log::info!("publishing request");
 
   let funhashes:Vec<u256> = app.functions.iter().map(|f| {
     let hash = hash_string(f);
@@ -62,6 +62,7 @@ pub fn publish(ctx: &ReducerContext, app:AppData){
   }).collect();
 
   let apphash = hash_app(&app.setup, funhashes);
+  log::info!("publishing app {}", apphash);
   ctx.db.app().insert(App{id:apphash, setup:app.setup});
 }
 

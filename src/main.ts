@@ -4,12 +4,13 @@ export {}
 import { Identity } from "@clockworklabs/spacetimedb-sdk"
 
 
-import { DbConnection, ReducerEventContext } from "./module_bindings"
+import { App, AppData, DbConnection, ReducerEventContext } from "./module_bindings"
 import { Stored, Writable } from "./store";
 import { button, div, h2, input, p } from "./html";
+import { hashApp, HashedApp } from "./lambox";
 
 
-const app = new Writable<HTMLElement>(div(
+const appView = new Writable<HTMLElement>(div(
 
   h2("connecting")
 
@@ -30,56 +31,97 @@ DbConnection.builder()
 .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
 
-  const runres = p("...")
-  const intake = input()
+  let funcode = new Stored<string>(dbname + servermode + "-funcode", "")
+  let arg = new Stored<string>(dbname + servermode + "-arg", "")
+  let result = new Stored<string>(dbname + servermode + "-result", "")
 
 
-  const code = "33";
 
-  conn.reducers.onRunscript((ctx:ReducerEventContext,code) => {
-    console.log("Runscript", ctx.event.status)
-    console.log("ctx", ctx)
-    console.log("with code:",code)
-  })
 
-  conn.db.callres.onInsert((c,row)=>{
-    console.log("new res:",row)
-    runres.innerHTML= row.content
-  })
 
+  const app : AppData = {
+    setup : "",
+    functions : ['()=>"lam result."'],
+  }
+
+  const hashed : HashedApp = await hashApp(app);
+  console.log("hashed",hashed)
 
   conn.subscriptionBuilder()
   .onApplied(c=>{
     console.log(c)
+    c.db.app.onInsert((c,app)=>{
+      console.log("app inserted",app)
+    })
+    c.db.host.onInsert((c,host)=>{
+      console.log("host inserted",host)
+    })
+    c.db.store.onInsert((c,store)=>{
+      console.log("store inserted",store)
+      result.set(store.content)
+    })
   })
   .onError(console.error)
   .subscribe([
-    "SELECT * FROM callres"
+
+    "SELECT * FROM app",
+    "SELECT * FROM host",
+    "SELECT * FROM store",
   ])
 
-  
 
-  conn.reducers.runscript(intake.value)
-
-
-  app.set(div(
+  appView.set(div(
     h2('welcome'),
-    runres,
-    intake,
-    button("run", {
-      onclick:()=>{
-        conn.reducers.runscript(intake.value)
+    p("funcode"),
+    input(funcode),
+    p("arg"),
+    input(arg),
+    p(),
+    
+    // button("publish", {
+    //   onclick:()=>{
+    //     conn.reducers.publish(app)
+    //   }
+    // }),
+    // button("host",{
+    //   onclick:()=>{
+    //     conn.reducers.sethost(hashed.hash,true)
+    //   }
+    // }),
+    // button("unhost",{
+    //   onclick:()=>{
+    //     conn.reducers.sethost(hashed.hash,false)
+    //   }
+    // }),
+    button("call",{
+      onclick:async()=>{
+
+        let app : AppData ={
+          setup : "",
+          functions : [funcode.get()],
+        }
+
+        const hashed = await hashApp(app)
+
+        conn.reducers.publish(app)
+        conn.reducers.sethost(hashed.hash,true)
+        conn.reducers.callLambda(
+          conn.identity,
+          hashed.hash,
+          hashed.lambdas[0],
+          arg.get()
+        )
       }
     }),
+    p(result)
   ))
-  
 
 
 }).build()
 
 
 document.body.appendChild(div(
-  app,
+  appView,
   {style:{
     "font-family":"monospace",
     "padding-left": "2em"

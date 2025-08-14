@@ -12,7 +12,13 @@ crate-type = ["cdylib"]
 spacetimedb = "1.2.0"
 log = "0.4"
 rubox = { path = "../../rubox" }
-tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_info"] }
+# tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_info"] }
 sha2 = "0.10"
 
 
+[logs]
+level = "debug"
+directives = [
+    "spacetimedb=debug",
+    "spacetimedb_standalone=info",
+]

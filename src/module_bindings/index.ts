@@ -34,28 +34,76 @@ import {
 } from "@clockworklabs/spacetimedb-sdk";
 
 // Import and reexport all reducer arg types
-import { Runscript } from "./runscript_reducer.ts";
-export { Runscript };
+import { CallLambda } from "./call_lambda_reducer.ts";
+export { CallLambda };
+import { Publish } from "./publish_reducer.ts";
+export { Publish };
+import { Sethost } from "./sethost_reducer.ts";
+export { Sethost };
 
 // Import and reexport all table handle types
-import { CallresTableHandle } from "./callres_table.ts";
-export { CallresTableHandle };
+import { AppTableHandle } from "./app_table.ts";
+export { AppTableHandle };
+import { HostTableHandle } from "./host_table.ts";
+export { HostTableHandle };
+import { LambdaTableHandle } from "./lambda_table.ts";
+export { LambdaTableHandle };
+import { StoreTableHandle } from "./store_table.ts";
+export { StoreTableHandle };
 
 // Import and reexport all types
-import { CallRes } from "./call_res_type.ts";
-export { CallRes };
+import { App } from "./app_type.ts";
+export { App };
+import { AppData } from "./app_data_type.ts";
+export { AppData };
+import { Host } from "./host_type.ts";
+export { Host };
+import { Lambda } from "./lambda_type.ts";
+export { Lambda };
+import { Store } from "./store_type.ts";
+export { Store };
 
 const REMOTE_MODULE = {
   tables: {
-    callres: {
-      tableName: "callres",
-      rowType: CallRes.getTypeScriptAlgebraicType(),
+    app: {
+      tableName: "app",
+      rowType: App.getTypeScriptAlgebraicType(),
+      primaryKey: "id",
+      primaryKeyInfo: {
+        colName: "id",
+        colType: App.getTypeScriptAlgebraicType().product.elements[0].algebraicType,
+      },
+    },
+    host: {
+      tableName: "host",
+      rowType: Host.getTypeScriptAlgebraicType(),
+    },
+    lambda: {
+      tableName: "lambda",
+      rowType: Lambda.getTypeScriptAlgebraicType(),
+      primaryKey: "id",
+      primaryKeyInfo: {
+        colName: "id",
+        colType: Lambda.getTypeScriptAlgebraicType().product.elements[0].algebraicType,
+      },
+    },
+    store: {
+      tableName: "store",
+      rowType: Store.getTypeScriptAlgebraicType(),
     },
   },
   reducers: {
-    runscript: {
-      reducerName: "runscript",
-      argsType: Runscript.getTypeScriptAlgebraicType(),
+    call_lambda: {
+      reducerName: "call_lambda",
+      argsType: CallLambda.getTypeScriptAlgebraicType(),
+    },
+    publish: {
+      reducerName: "publish",
+      argsType: Publish.getTypeScriptAlgebraicType(),
+    },
+    sethost: {
+      reducerName: "sethost",
+      argsType: Sethost.getTypeScriptAlgebraicType(),
     },
   },
   versionInfo: {
@@ -87,34 +135,78 @@ const REMOTE_MODULE = {
 
 // A type representing all the possible variants of a reducer.
 export type Reducer = never
-| { name: "Runscript", args: Runscript }
+| { name: "CallLambda", args: CallLambda }
+| { name: "Publish", args: Publish }
+| { name: "Sethost", args: Sethost }
 ;
 
 export class RemoteReducers {
   constructor(private connection: DbConnectionImpl, private setCallReducerFlags: SetReducerFlags) {}
 
-  runscript(code: string) {
-    const __args = { code };
+  callLambda(other: Identity, app: bigint, lam: bigint, arg: string) {
+    const __args = { other, app, lam, arg };
     let __writer = new BinaryWriter(1024);
-    Runscript.getTypeScriptAlgebraicType().serialize(__writer, __args);
+    CallLambda.getTypeScriptAlgebraicType().serialize(__writer, __args);
     let __argsBuffer = __writer.getBuffer();
-    this.connection.callReducer("runscript", __argsBuffer, this.setCallReducerFlags.runscriptFlags);
+    this.connection.callReducer("call_lambda", __argsBuffer, this.setCallReducerFlags.callLambdaFlags);
   }
 
-  onRunscript(callback: (ctx: ReducerEventContext, code: string) => void) {
-    this.connection.onReducer("runscript", callback);
+  onCallLambda(callback: (ctx: ReducerEventContext, other: Identity, app: bigint, lam: bigint, arg: string) => void) {
+    this.connection.onReducer("call_lambda", callback);
   }
 
-  removeOnRunscript(callback: (ctx: ReducerEventContext, code: string) => void) {
-    this.connection.offReducer("runscript", callback);
+  removeOnCallLambda(callback: (ctx: ReducerEventContext, other: Identity, app: bigint, lam: bigint, arg: string) => void) {
+    this.connection.offReducer("call_lambda", callback);
+  }
+
+  publish(app: AppData) {
+    const __args = { app };
+    let __writer = new BinaryWriter(1024);
+    Publish.getTypeScriptAlgebraicType().serialize(__writer, __args);
+    let __argsBuffer = __writer.getBuffer();
+    this.connection.callReducer("publish", __argsBuffer, this.setCallReducerFlags.publishFlags);
+  }
+
+  onPublish(callback: (ctx: ReducerEventContext, app: AppData) => void) {
+    this.connection.onReducer("publish", callback);
+  }
+
+  removeOnPublish(callback: (ctx: ReducerEventContext, app: AppData) => void) {
+    this.connection.offReducer("publish", callback);
+  }
+
+  sethost(app: bigint, value: boolean) {
+    const __args = { app, value };
+    let __writer = new BinaryWriter(1024);
+    Sethost.getTypeScriptAlgebraicType().serialize(__writer, __args);
+    let __argsBuffer = __writer.getBuffer();
+    this.connection.callReducer("sethost", __argsBuffer, this.setCallReducerFlags.sethostFlags);
+  }
+
+  onSethost(callback: (ctx: ReducerEventContext, app: bigint, value: boolean) => void) {
+    this.connection.onReducer("sethost", callback);
+  }
+
+  removeOnSethost(callback: (ctx: ReducerEventContext, app: bigint, value: boolean) => void) {
+    this.connection.offReducer("sethost", callback);
   }
 
 }
 
 export class SetReducerFlags {
-  runscriptFlags: CallReducerFlags = 'FullUpdate';
-  runscript(flags: CallReducerFlags) {
-    this.runscriptFlags = flags;
+  callLambdaFlags: CallReducerFlags = 'FullUpdate';
+  callLambda(flags: CallReducerFlags) {
+    this.callLambdaFlags = flags;
+  }
+
+  publishFlags: CallReducerFlags = 'FullUpdate';
+  publish(flags: CallReducerFlags) {
+    this.publishFlags = flags;
+  }
+
+  sethostFlags: CallReducerFlags = 'FullUpdate';
+  sethost(flags: CallReducerFlags) {
+    this.sethostFlags = flags;
   }
 
 }
@@ -122,8 +214,20 @@ export class SetReducerFlags {
 export class RemoteTables {
   constructor(private connection: DbConnectionImpl) {}
 
-  get callres(): CallresTableHandle {
-    return new CallresTableHandle(this.connection.clientCache.getOrCreateTable<CallRes>(REMOTE_MODULE.tables.callres));
+  get app(): AppTableHandle {
+    return new AppTableHandle(this.connection.clientCache.getOrCreateTable<App>(REMOTE_MODULE.tables.app));
+  }
+
+  get host(): HostTableHandle {
+    return new HostTableHandle(this.connection.clientCache.getOrCreateTable<Host>(REMOTE_MODULE.tables.host));
+  }
+
+  get lambda(): LambdaTableHandle {
+    return new LambdaTableHandle(this.connection.clientCache.getOrCreateTable<Lambda>(REMOTE_MODULE.tables.lambda));
+  }
+
+  get store(): StoreTableHandle {
+    return new StoreTableHandle(this.connection.clientCache.getOrCreateTable<Store>(REMOTE_MODULE.tables.store));
   }
 }
 

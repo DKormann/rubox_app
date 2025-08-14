@@ -33,30 +33,32 @@ import {
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
 
-export type Runscript = {
-  code: string,
+import { AppData as __AppData } from "./app_data_type";
+
+export type Publish = {
+  app: __AppData,
 };
 
 /**
  * A namespace for generated helper functions.
  */
-export namespace Runscript {
+export namespace Publish {
   /**
   * A function which returns this type represented as an AlgebraicType.
   * This function is derived from the AlgebraicType used to generate this type.
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
-      new ProductTypeElement("code", AlgebraicType.createStringType()),
+      new ProductTypeElement("app", __AppData.getTypeScriptAlgebraicType()),
     ]);
   }
 
-  export function serialize(writer: BinaryWriter, value: Runscript): void {
-    Runscript.getTypeScriptAlgebraicType().serialize(writer, value);
+  export function serialize(writer: BinaryWriter, value: Publish): void {
+    Publish.getTypeScriptAlgebraicType().serialize(writer, value);
   }
 
-  export function deserialize(reader: BinaryReader): Runscript {
-    return Runscript.getTypeScriptAlgebraicType().deserialize(reader);
+  export function deserialize(reader: BinaryReader): Publish {
+    return Publish.getTypeScriptAlgebraicType().deserialize(reader);
   }
 
 }

@@ -32,23 +32,23 @@ import {
   type ReducerEventContextInterface,
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
-import { CallRes } from "./call_res_type";
+import { Host } from "./host_type";
 import { type EventContext, type Reducer, RemoteReducers, RemoteTables } from ".";
 
 /**
- * Table handle for the table `callres`.
+ * Table handle for the table `host`.
  *
- * Obtain a handle from the [`callres`] property on [`RemoteTables`],
- * like `ctx.db.callres`.
+ * Obtain a handle from the [`host`] property on [`RemoteTables`],
+ * like `ctx.db.host`.
  *
  * Users are encouraged not to explicitly reference this type,
  * but to directly chain method calls,
- * like `ctx.db.callres.on_insert(...)`.
+ * like `ctx.db.host.on_insert(...)`.
  */
-export class CallresTableHandle {
-  tableCache: TableCache<CallRes>;
+export class HostTableHandle {
+  tableCache: TableCache<Host>;
 
-  constructor(tableCache: TableCache<CallRes>) {
+  constructor(tableCache: TableCache<Host>) {
     this.tableCache = tableCache;
   }
 
@@ -56,23 +56,23 @@ export class CallresTableHandle {
     return this.tableCache.count();
   }
 
-  iter(): Iterable<CallRes> {
+  iter(): Iterable<Host> {
     return this.tableCache.iter();
   }
 
-  onInsert = (cb: (ctx: EventContext, row: CallRes) => void) => {
+  onInsert = (cb: (ctx: EventContext, row: Host) => void) => {
     return this.tableCache.onInsert(cb);
   }
 
-  removeOnInsert = (cb: (ctx: EventContext, row: CallRes) => void) => {
+  removeOnInsert = (cb: (ctx: EventContext, row: Host) => void) => {
     return this.tableCache.removeOnInsert(cb);
   }
 
-  onDelete = (cb: (ctx: EventContext, row: CallRes) => void) => {
+  onDelete = (cb: (ctx: EventContext, row: Host) => void) => {
     return this.tableCache.onDelete(cb);
   }
 
-  removeOnDelete = (cb: (ctx: EventContext, row: CallRes) => void) => {
+  removeOnDelete = (cb: (ctx: EventContext, row: Host) => void) => {
     return this.tableCache.removeOnDelete(cb);
   }
 }
