@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "esnext",
+    "lib": [
+      // "ES2024",
+      // "DOM",
+      "ESNext", "DOM",
+      "ESNext.BigInt"
+    ],
+    "moduleResolution": "Node",
+    "strict": false,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+  },
+  "include": [
+    "src"
+  ]
+}

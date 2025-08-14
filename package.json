@@ -1,0 +1,18 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "BUILD_TARGET=gh-pages vite build --force",
+    "build:gh-pages": "BUILD_TARGET=gh-pages vite build --force",
+    "build:local": "BUILD_TARGET=local vite build --force",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@clockworklabs/spacetimedb-sdk": "^1.1.0",
+    "typescript": "^4.5.4",
+    "vite": "^3.0.7"
+  }
+}
