@@ -36,10 +36,8 @@ pub struct Host{
 
 #[table(name = store, public)]
 pub struct Store{
-  owner: Identity,
-  app:u256,
-  lam:u256,
-  arg:u256,
+  owner:Identity,
+  key:u256,
   content:String,
 }
 
@@ -93,7 +91,15 @@ pub fn sethost(ctx: &ReducerContext, app:u256, value:bool){
 
 
 
-
+pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&str)->u256{
+  let mut hash = Sha256::new();
+  hash.update(owner.to_be_byte_array());
+  hash.update(other.to_be_byte_array());
+  hash.update(app.to_be_bytes());
+  hash.update(lam.to_be_bytes());
+  hash.update(arg);
+  return u256::from_be_bytes(*hash.finalize().as_ref())
+}
 
 
 #[spacetimedb::reducer]
@@ -103,17 +109,18 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   by_host_and_app.filter((other, app)).next().ok_or("app not installed on other")?;
   by_host_and_app.filter((ctx.sender, app)).next().ok_or("app not installed on self")?;
 
-
-  // we do not need to check app and lambda here.
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
 
-  let res = runcode(&lam.code).map_err(|e| e.to_string())?;
+  let fullcode = format!("({})({})", lam.code, arg);
 
-  ctx.db.store().insert(Store{owner:ctx.sender, app:app.id, lam:lam.id, arg:hash_string(&arg), content:res});
+  let res = runcode(&fullcode).map_err(|e| e.to_string())?;
+
+  let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
+
+  ctx.db.store().insert(Store{owner:ctx.sender, key, content:res});
 
   Ok(())
-
 
 }
 

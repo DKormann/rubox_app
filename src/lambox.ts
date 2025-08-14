@@ -1,7 +1,4 @@
-// Rust equivalence:
-// hash_string(s) = u256::from_be_bytes(SHA256(s))
-// hash_app(setup, functions) = u256::from_be_bytes(SHA256(setup || concat(functions as 32-byte BE)))
-
+import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { AppData } from "./module_bindings";
 
 const textEncoder = new TextEncoder();
@@ -41,10 +38,16 @@ export async function hashString(s: string): Promise<bigint> {
   return toU256FromBytes(digest);
 }
 
-// export type Ap = {
-//   setup: string;
-//   lambdas: string[];
-// };
+export async function hashFunArgs(owner:Identity, other:Identity, app:bigint, lam:bigint, arg:string): Promise<bigint> {
+  const ownerBytes = u256ToBeBytes(owner.data);
+  const otherBytes = u256ToBeBytes(other.data);
+  const appBytes = u256ToBeBytes(app);
+  const lamBytes = u256ToBeBytes(lam);
+  const argBytes = textEncoder.encode(arg);
+  const allBytes = concatBytes([ownerBytes, otherBytes, appBytes, lamBytes, argBytes]);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", allBytes));
+  return toU256FromBytes(digest);
+}
 
 export type HashedApp = {
   hash: bigint;

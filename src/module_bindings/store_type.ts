@@ -34,9 +34,7 @@ import {
 } from "@clockworklabs/spacetimedb-sdk";
 export type Store = {
   owner: Identity,
-  app: bigint,
-  lam: bigint,
-  arg: bigint,
+  key: bigint,
   content: string,
 };
 
@@ -51,9 +49,7 @@ export namespace Store {
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
       new ProductTypeElement("owner", AlgebraicType.createIdentityType()),
-      new ProductTypeElement("app", AlgebraicType.createU256Type()),
-      new ProductTypeElement("lam", AlgebraicType.createU256Type()),
-      new ProductTypeElement("arg", AlgebraicType.createU256Type()),
+      new ProductTypeElement("key", AlgebraicType.createU256Type()),
       new ProductTypeElement("content", AlgebraicType.createStringType()),
     ]);
   }

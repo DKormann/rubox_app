@@ -7,7 +7,7 @@ import { Identity } from "@clockworklabs/spacetimedb-sdk"
 import { App, AppData, DbConnection, ReducerEventContext } from "./module_bindings"
 import { Stored, Writable } from "./store";
 import { button, div, h2, input, p } from "./html";
-import { hashApp, HashedApp } from "./lambox";
+import { hashApp, HashedApp, hashFunArgs, hashString } from "./lambox";
 
 
 const appView = new Writable<HTMLElement>(div(
@@ -30,13 +30,12 @@ DbConnection.builder()
 .withToken(dbtoken.get())
 .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
+  dbtoken.set(token)
+
 
   let funcode = new Stored<string>(dbname + servermode + "-funcode", "")
   let arg = new Stored<string>(dbname + servermode + "-arg", "")
   let result = new Stored<string>(dbname + servermode + "-result", "")
-
-
-
 
 
   const app : AppData = {
@@ -44,29 +43,34 @@ DbConnection.builder()
     functions : ['()=>"lam result."'],
   }
 
-  const hashed : HashedApp = await hashApp(app);
-  console.log("hashed",hashed)
+  const storeCache = new Map<bigint, string>();
 
   conn.subscriptionBuilder()
-  .onApplied(c=>{
-    console.log(c)
-    c.db.app.onInsert((c,app)=>{
-      console.log("app inserted",app)
-    })
+  .onApplied(c=>{  
     c.db.host.onInsert((c,host)=>{
       console.log("host inserted",host)
     })
     c.db.store.onInsert((c,store)=>{
-      console.log("store inserted",store)
-      result.set(store.content)
+      if (store.owner.data == identity.data){
+        storeCache.set(store.key, store.content)
+      }
     })
+
+    c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
+      const key = await hashFunArgs(identity, other, app, lam, arg)
+      if (ctx.event.status.tag == "Failed") {
+        result.set(ctx.event.status.value)
+      }else{
+        result.set(storeCache.get(key) || "<not found>")
+      }
+    })
+    
   })
   .onError(console.error)
   .subscribe([
 
-    "SELECT * FROM app",
-    "SELECT * FROM host",
-    "SELECT * FROM store",
+    `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
+    `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
   ])
 
 
@@ -77,22 +81,7 @@ DbConnection.builder()
     p("arg"),
     input(arg),
     p(),
-    
-    // button("publish", {
-    //   onclick:()=>{
-    //     conn.reducers.publish(app)
-    //   }
-    // }),
-    // button("host",{
-    //   onclick:()=>{
-    //     conn.reducers.sethost(hashed.hash,true)
-    //   }
-    // }),
-    // button("unhost",{
-    //   onclick:()=>{
-    //     conn.reducers.sethost(hashed.hash,false)
-    //   }
-    // }),
+
     button("call",{
       onclick:async()=>{
 
