@@ -87,6 +87,8 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
   const writable = cs.find(c=>c instanceof Writable) as Writable<string>
 
+  const content = cs.filter(c=>typeof c == 'string').join(' ')
+
   const el = html("input", ...cs) as HTMLInputElement
 
   if (writable){
@@ -99,6 +101,8 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
     el.oninput = (e)=>{
       writable.set((e.target as HTMLInputElement).value)
     }
+  }else{
+    el.value = content
   }
   return el
 }

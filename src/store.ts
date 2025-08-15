@@ -45,8 +45,8 @@ export class Stored<T> extends Writable<T> {
     this.key = key
   }
 
-  set (newValue: T): void {
-    if (JSON.stringify(this.get()) !== JSON.stringify(newValue)) {
+  set (newValue: T, force=false): void {
+    if (force || JSON.stringify(this.get()) !== JSON.stringify(newValue)) {
       super.set(newValue)
       localStorage.setItem(this.key, JSON.stringify(newValue))
     }

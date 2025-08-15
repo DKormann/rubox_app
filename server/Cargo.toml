@@ -14,6 +14,8 @@ log = "0.4"
 rubox = { path = "../../rubox" }
 # tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_info"] }
 sha2 = "0.10"
+im = "15"
+
 
 
 [logs]

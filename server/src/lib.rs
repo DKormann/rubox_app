@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use spacetimedb::{reducer, sats::u256, table, Identity, RangedIndex, ReducerContext, SpacetimeType, Table};
 use sha2::{Sha256, Digest};
-use rubox::{ast::Value, *};
-
+use rubox::{ast::{mk_fn, mk_native_fn, Value}, *};
+use im::HashMap;
 
 
 
@@ -51,8 +53,6 @@ pub struct AppData{
 
 #[reducer]
 pub fn publish(ctx: &ReducerContext, app:AppData){
-  log::info!("publishing request");
-
   let funhashes:Vec<u256> = app.functions.iter().map(|f| {
     let hash = hash_string(f);
     ctx.db.lambda().insert(Lambda{id:hash, code:f.clone()});
@@ -60,7 +60,6 @@ pub fn publish(ctx: &ReducerContext, app:AppData){
   }).collect();
 
   let apphash = hash_app(&app.setup, funhashes);
-  log::info!("publishing app {}", apphash);
   ctx.db.app().insert(App{id:apphash, setup:app.setup});
 }
 
@@ -102,6 +101,12 @@ pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&st
 }
 
 
+
+pub fn store_set(ctx:&ReducerContext,owner:Identity, key:String, content:String){
+  let keycode = hash_string(&key);
+  ctx.db.store().insert(Store{owner, key:keycode, content});
+}
+
 #[spacetimedb::reducer]
 pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg:String)->Result<(), String>{
 
@@ -114,7 +119,33 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
   let fullcode = format!("({})({})", lam.code, arg);
 
-  let res = runcode(&fullcode).map_err(|e| e.to_string())?;
+
+  store_set(ctx,ctx.sender.clone(),"test".to_string(),"test".to_string());
+
+  let store = ctx.db.store().clone();
+
+
+  let native_set = Rc::new(Value::NativeFn(Rc::new(|args|{
+    if let [Value::Boolean(forme), Value::String(key), Value::String(content)] = args {
+      if *forme {
+
+        store.insert(Store{owner:ctx.sender.clone(), key:hash_string(&key), content:"content".into()});
+      };
+    };
+    Ok(Value::Int(22))
+  })));
+
+  let std_ctx = HashMap::from(
+    vec![
+      ("other".to_string(), Rc::new(Value::String(other.to_string()))),
+
+      ("DBSet".to_string(), (native_set)),
+    ]
+  );
+
+  let res = runcode_ctx(&fullcode,std_ctx).map_err(|e| e.to_string())?;
+
+
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
