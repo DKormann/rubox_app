@@ -1,0 +1,49 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
+
+ident      = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+int        = @{ "-"? ~ ASCII_DIGIT+ }
+float      = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+string     = @{ "\"" ~ ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
+boolean    = { "true" | "false" }
+null       = { "null" }
+undefined  = { "undefined" }
+
+literal    = _{ float | int | string | boolean | null | undefined }
+
+params     = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
+arglist    = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+prop       = { ident ~ ":" ~ expr }
+
+array      = { "[" ~ (expr ~ ("," ~ expr)* ~ (",")?)? ~ "]" }
+object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
+
+
+let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" ~ expr }
+fun        = { params  ~ "=>" ~ expr }
+
+
+
+
+
+
+primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" }
+
+
+field = {"." ~ ident}
+index = {"[" ~ expr ~ "]"}
+
+access_chain = {primary  ~ (field | index | arglist)+}
+
+operand    = { access_chain | primary }
+op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" }
+binop      = { operand ~ op ~ operand }
+
+cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
+
+
+expr       = _{ ( let_  | fun  | cond | binop | access_chain | primary) }
+
+
+program    = { SOI ~ expr ~ EOI }

@@ -32,9 +32,11 @@ DbConnection.builder()
   conn.subscriptionBuilder()
   .onApplied(c=>{  
     c.db.host.onInsert((c,host)=>{})
+    console.log(identity.data)
     c.db.store.onInsert((c,store)=>{
+
       if (store.owner.data == identity.data){
-        console.log("store insert", store)
+        console.log("insert", store)
         storeCache.set(store.key, store.content)
       }
     })
@@ -42,7 +44,7 @@ DbConnection.builder()
     c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
       const key = await hashFunArgs(identity, other, app, lam, arg)
       if (ctx.event.status.tag == "Failed") result.set(ctx.event.status.value)
-      else result.set(storeCache.get(key) || "<not found>")
+      else result.set(storeCache.get(key) || "<not in cache>")
     })
 
   })
@@ -52,7 +54,15 @@ DbConnection.builder()
     `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
   ])
 
+  console.log("identity", identity.toHexString())
+
   const funinputs = new Writable<HTMLElement[]>([])
+
+  funcodes.update(fs => {
+
+    ff[0] = "";
+    return ff
+  }, true)
 
   funcodes.subscribe(fs =>{
     log(fs)
@@ -62,7 +72,7 @@ DbConnection.builder()
     }
     funinputs.set([
       ...fs.map((f,i) => {
-        const ip = input(f)
+        const ip = input(f, {style:{width:"20em"}})
         ip.oninput = ()=>{
           funcodes.update(fs => {
             fs[i] = ip.value

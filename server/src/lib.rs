@@ -1,11 +1,22 @@
-use std::rc::Rc;
+
+
+#![allow(unused)]
+
+use std::{cell::RefCell, rc::Rc};
 
 use spacetimedb::{reducer, sats::u256, table, Identity, RangedIndex, ReducerContext, SpacetimeType, Table};
 use sha2::{Sha256, Digest};
-use rubox::{ast::{mk_fn, mk_native_fn, Value}, *};
+
+
+
+// use rubox::{ast::{mk_fn, mk_native_fn, Value}, *};
 use im::HashMap;
+mod tests;
+mod lang;
 
+use lang::parser::*;
 
+use crate::lang::{ast::{EnvData, Value}, readback::read_back, runtime::{do_eval, env_extend}};
 
 #[table(name = lambda, public)]
 pub struct Lambda{
@@ -18,6 +29,7 @@ pub struct Lambda{
 #[table(name = app, public)]
 pub struct App{
   #[primary_key]
+  
   id:u256,
   setup:String,
 }
@@ -38,8 +50,9 @@ pub struct Host{
 
 #[table(name = store, public)]
 pub struct Store{
-  owner:Identity,
+  #[primary_key]
   key:u256,
+  owner:Identity,
   content:String,
 }
 
@@ -102,10 +115,6 @@ pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&st
 
 
 
-pub fn store_set(ctx:&ReducerContext,owner:Identity, key:String, content:String){
-  let keycode = hash_string(&key);
-  ctx.db.store().insert(Store{owner, key:keycode, content});
-}
 
 #[spacetimedb::reducer]
 pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg:String)->Result<(), String>{
@@ -120,38 +129,50 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   let fullcode = format!("({})({})", lam.code, arg);
 
 
-  store_set(ctx,ctx.sender.clone(),"test".to_string(),"test".to_string());
+  let ast = parse(&fullcode).map_err(|e| e.to_string())?;
 
-  let store = ctx.db.store().clone();
+  let res = do_eval(&ast,
+    &Rc::new(EnvData{
+      bindings: RefCell::new(HashMap::from_iter(vec![
+        ("DBSet".into(), Rc::new(Value::NativeFn("DBSet".into()))),
+        ("DBGet".into(), Rc::new(Value::NativeFn("DBGet".into()))),
+      ])),
+      parent: None,
+    }),
+    |fname: &str, args: Vec<Value>|{
 
+    let _innerres: Result<Value, String> = 
+    match (fname, args.as_slice()){
+      ("DBSet", [Value::Boolean(forme), Value::String(key), Value::String(content)]) => {
+        if *forme {
+          ctx.db.store().try_insert(Store{key:hash_string(&key), owner:ctx.sender, content:"content".into()})?;
+        };
+        Ok(Value::Null)
+      },
+      ("DBGet", [Value::String(key)]) => {
+        let store = ctx.db.store().key().find(hash_string(&key)).ok_or("key not found");
+        match store {
+          Ok(store) => Ok(Value::String(store.content)),
+          Err(e) => Ok(Value::String("".into())),
+        }
+      },
 
-  let native_set = Rc::new(Value::NativeFn(Rc::new(|args|{
-    if let [Value::Boolean(forme), Value::String(key), Value::String(content)] = args {
-      if *forme {
-
-        store.insert(Store{owner:ctx.sender.clone(), key:hash_string(&key), content:"content".into()});
-      };
+      (_, _) => return Err("function not found".to_string())
     };
+    
     Ok(Value::Int(22))
-  })));
-
-  let std_ctx = HashMap::from(
-    vec![
-      ("other".to_string(), Rc::new(Value::String(other.to_string()))),
-
-      ("DBSet".to_string(), (native_set)),
-    ]
-  );
-
-  let res = runcode_ctx(&fullcode,std_ctx).map_err(|e| e.to_string())?;
-
+  })?;
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
-  ctx.db.store().insert(Store{owner:ctx.sender, key, content:res});
+  log::info!("inserting {} for {}", key, ctx.sender.to_u256());
+
+  ctx.db.store().try_insert(Store{
+    key:key,
+    owner:ctx.sender,
+    content:read_back(&res)})?;
 
   Ok(())
 
 }
-

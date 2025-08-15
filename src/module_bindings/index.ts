@@ -90,6 +90,11 @@ const REMOTE_MODULE = {
     store: {
       tableName: "store",
       rowType: Store.getTypeScriptAlgebraicType(),
+      primaryKey: "key",
+      primaryKeyInfo: {
+        colName: "key",
+        colType: Store.getTypeScriptAlgebraicType().product.elements[0].algebraicType,
+      },
     },
   },
   reducers: {

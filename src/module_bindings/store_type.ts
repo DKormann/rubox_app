@@ -33,8 +33,8 @@ import {
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
 export type Store = {
-  owner: Identity,
   key: bigint,
+  owner: Identity,
   content: string,
 };
 
@@ -48,8 +48,8 @@ export namespace Store {
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
-      new ProductTypeElement("owner", AlgebraicType.createIdentityType()),
       new ProductTypeElement("key", AlgebraicType.createU256Type()),
+      new ProductTypeElement("owner", AlgebraicType.createIdentityType()),
       new ProductTypeElement("content", AlgebraicType.createStringType()),
     ]);
   }
