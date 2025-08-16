@@ -7,7 +7,7 @@ pub fn read_back(a:&Value)->String{
   match a {
     Value::Int(n)=>n.to_string(),
     Value::Float(n)=>n.to_string(),
-    Value::String(s)=>s.clone(),
+    Value::String(s)=>format!("\"{}\"", s.replace("\"", "\\\"")),
     Value::Boolean(b)=>b.to_string(),
     Value::Null=>"null".into(),
     Value::Undefined=>"undefined".into(),

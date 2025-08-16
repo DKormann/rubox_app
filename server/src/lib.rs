@@ -16,7 +16,7 @@ mod lang;
 
 use lang::parser::*;
 
-use crate::lang::{ast::{mk_object, EnvData, Expr, Value}, readback::read_back, runtime::{do_eval, env_extend, eval}};
+use crate::lang::{ast::{mk_object, EnvData, Expr, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval}};
 
 #[table(name = lambda, public)]
 pub struct Lambda{
@@ -38,7 +38,7 @@ pub struct App{
 #[derive(SpacetimeType)]
 pub struct HostKey{
   host: Identity,
-  app:u256,
+  app: u256,
 }
 
 #[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
@@ -153,23 +153,31 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
     |fname: &str, args: Vec<Value>|{
 
     match (fname, args.as_slice()){
-      ("DBSet", [Value::Boolean(from_me), Value::String(key), Value::String(content)]) => {
-
+      ("DBSet", [Value::Boolean(from_me), Value::String(key), content]) => {
+        let content = read_back(content);
         let owner = if *from_me {ctx.sender} else {other};
         let key = hash_key(owner, app.id, &key);
         log::info!("setting {}, {}, {}", owner, app.id, &key);
-        ctx.db.store().try_insert(Store{key, owner:ctx.sender, content:content.clone()})?;
+        let insres = ctx.db.store().try_insert(Store{key, owner:ctx.sender, content:content.clone()});
+        if insres.is_err(){
+          ctx.db.store().key().update(Store{key, owner:ctx.sender, content:content.clone()});
+        };
         Ok(Value::Null)
       },
       ("DBGet", [Value::Boolean(from_me), Value::String(key)]) => {
         let owner = if *from_me {ctx.sender} else {other};
         let key = hash_key(owner, app.id, &key);
-        log::info!("getting {}, {}, {}", owner, app.id, &key);
-        let store = ctx.db.store().key().find(key).ok_or("key not found");
-        match store {
-          Ok(store) => Ok(Value::String(store.content)),
-          Err(e) => Ok(Value::String("".into())),
-        }
+
+        let val: Value = match ctx.db.store().key().find(key){
+          Some(store) => {
+            let ast = parse(&store.content).map_err(|e| e.to_string())?;
+            let res = eval(&ast)?;
+            (*res).clone()
+          },
+          None => Value::Null,
+        };
+
+        Ok(val)
       },
 
       (_, _) => return Err("function not found".to_string())

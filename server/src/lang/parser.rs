@@ -40,13 +40,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
 
       Ok(mk_let(name, init, body))
     }
-    // Rule::fun => {
-    //   let mut inner = pair.into_inner();
-    //   let params_pair = inner.next().unwrap();
-    //   let params = build_params(params_pair);
-    //   let body = build_expr(inner.next().unwrap())?;
-    //   Ok(mk_fn(params,body))
-    // }
 
     Rule::fun => {
       let mut inner = pair.into_inner();
@@ -75,7 +68,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
       Ok(res)
     },
     Rule::literal => build_literal(pair),
-    Rule::int | Rule::float | Rule::string | Rule::boolean | Rule::null | Rule::undefined => build_literal(pair),
+    Rule::int | Rule::float | Rule::string | Rule::string2 | Rule::boolean | Rule::null | Rule::undefined => build_literal(pair),
     Rule::array => build_array(pair),
     Rule::object => build_object(pair),
     Rule::cond => {
@@ -158,7 +151,12 @@ fn build_literal(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error:
       // strip surrounding quotes and unescape basic escapes
       let raw = &text[1..text.len()-1];
       Value::String(unescape_basic_string(raw))
-    }
+    },
+    Rule::string2 => {
+      // strip surrounding quotes and unescape basic escapes
+      let raw = &text[1..text.len()-1];
+      Value::String(unescape_basic_string(raw))
+    },
     Rule::boolean => Value::Boolean(text == "true"),
     Rule::null => Value::Null,
     Rule::undefined => Value::Undefined,
@@ -182,6 +180,7 @@ fn unescape_basic_string(input: &str) -> String {
           'r' => out.push('\r'),
           't' => out.push('\t'),
           '"' => out.push('"'),
+          '\'' => out.push('\''),
           '\\' => out.push('\\'),
           other => {
             out.push('\\');

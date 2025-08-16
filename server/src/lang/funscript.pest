@@ -5,11 +5,14 @@ ident      = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 int        = @{ "-"? ~ ASCII_DIGIT+ }
 float      = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 string     = @{ "\"" ~ ( "\\\"" | (!"\"" ~ ANY) )* ~ "\"" }
+string2    = @{ "\'" ~ ( "\\\'" | (!"\'" ~ ANY) )* ~ "\'" }
+
+
 boolean    = { "true" | "false" }
 null       = { "null" }
 undefined  = { "undefined" }
 
-literal    = _{ float | int | string | boolean | null | undefined }
+literal    = _{ float | int | string | string2 | boolean | null | undefined }
 
 params     = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
 arglist    = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }

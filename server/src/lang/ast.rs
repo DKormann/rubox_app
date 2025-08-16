@@ -247,7 +247,13 @@ pub fn mk_fn(params: Vec<String>, body: Expr) -> Expr {
 #[allow(dead_code)]
 pub fn mk_call(func: Expr, args: Vec<Expr>) -> Expr {
   Expr::Call(Box::new(func), args)
+
 }
+
+pub fn mk_string(s: String) -> Expr {
+  Expr::Value(Box::new(Value::String(s)))
+}
+
 pub fn mk_let(name: String, value: Expr, body: Expr) -> Expr {
   Expr::Let(name, Box::new(value), Box::new(body))
 }

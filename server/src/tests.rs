@@ -13,11 +13,18 @@ use crate::lang::runtime::eval;
 use crate::lang::ast::*;
 use crate::lang::parser::*;
 
+
   fn test_parse(code:&str, expect_ast:Expr){
     let ast = parse(code).expect("parse failed");
     assert_eq!(ast, expect_ast);
   }
 
+  #[test]
+  fn test_parse_str(){
+    let code = "let x = '22'; x";
+    test_parse(code, mk_let("x".into(), mk_string("22".into()), mk_var("x")));
+  }
+  
   #[test]
   fn test_let_parse(){
     let code = "let x = 2; x";
