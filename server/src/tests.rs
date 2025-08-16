@@ -7,6 +7,8 @@ use std::array;
 use std::rc::Rc;
 use crate::lang::runcode;
 use crate::lang::runtime;
+use crate::lang::runtime::do_eval;
+use crate::lang::runtime::env_extend;
 use crate::lang::runtime::eval;
 use crate::lang::ast::*;
 use crate::lang::parser::*;
@@ -235,55 +237,67 @@ use crate::lang::parser::*;
     test_run_code("[1,2,3]", "[1, 2, 3]");
   }
 
-  // #[test]
-  // fn eval_multiline_fn(){
+  #[test]
+  fn eval_multiline_fn(){
 
-  //   let code = "
-  //   let fun = (n)=> {
-  //     return 3;
-  //   };
-  //   fun(1)
-  //   ";
-  //   let ast = parse(code).map_err(|e| e.to_string());
-  //   match ast {
-  //     Err(e) => {
-  //       println!("{}", e);
-  //       panic!("parse failed");
-  //     }
-  //     Ok(ast) => {
-  //       let res = eval(&ast).expect("eval failed");
-  //       assert_eq!(res, Value::Int(3).into());
-  //     },
-  //   }
-
-  // }
+    let code = "
+    let fun = (n)=> {
+      return 3;
+    };
+    fun(1)
+    ";
+    let ast = parse(code).map_err(|e| e.to_string());
+    match ast {
+      Err(e) => {
+        panic!("parse failed");
+      }
+      Ok(ast) => {
+        let res = eval(&ast).expect("eval failed");
+        assert_eq!(res, Value::Int(3).into());
+      },
+    }
+  }
 
 
+  #[test]
+  fn eval_multiline_fn2(){
+
+    let code = "
+    let fun = (n)=> {
+      let x = 2;
+      return x + 3;
+    };
+    fun(1)
+    ";
+    let ast = parse(code).map_err(|e| e.to_string());
+    match ast {
+      Err(e) => {
+        panic!("parse failed");
+      }
+      Ok(ast) => {
+        let res = eval(&ast).expect("eval failed");
+        assert_eq!(res, Value::Int(5).into());
+      },
+    }
+  }
 
 
 
-  // #[test]
-  // fn eval_native_fn(){
-  //   let nfn = mk_native_fn(|args| Ok(Value::Int(42)));
-  //   eval(&nfn).expect("eval failed");
-  //   let call = mk_call(nfn, vec![]);
-  //   let res = eval(&call).expect("eval failed");
-  //   assert_eq!(res, Value::Int(42).into());
-  //   let nfn2: Expr = mk_native_fn(|args: &[Value]| {
-  //     if let [Value::Int(a), Value::Int(b)] = args {
-  //       Ok(Value::Int(a + b))
-  //     } else {
-  //       Err("expected two Int arguments".into())
-  //     }
-  //   });
-  //   let call = mk_call(nfn2, vec![mk_int(1), mk_int(2)]);
-  //   let res = eval(&call).expect("eval failed");
-  //   assert_eq!(res, Value::Int(3).into());
-  // }
 
 
-  
+  #[test]
+  fn eval_native_fn(){
+    let nfn = mk_native_fn("myFn".into());
+    let res = do_eval(&mk_call(nfn, vec![]), &&env_extend(None),
+    |fname, args| {
+      match fname {
+        "myFn" => Ok(Value::Int(42)),
+        _ => Err("native function not found".into()),
+      }
+    }).expect("eval failed");
+    assert_eq!(res, Value::Int(42).into());
 
+  }
 
 }
 

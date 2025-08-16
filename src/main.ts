@@ -1,127 +1,108 @@
-import { Identity } from "@clockworklabs/spacetimedb-sdk"
-import { AppData, DbConnection } from "./module_bindings"
-import { Stored, Writable } from "./store";
-import { button, div, h2, input, p } from "./html";
-import { hashApp, hashFunArgs } from "./lambox";
 
-const appView = new Writable<HTMLElement>(div(h2("connecting")));
-const servermode : 'local'|'remote' = (window.location.pathname.split("/").includes("local")) ? 'local' : 'remote';
-const serverurl = (servermode == 'local') ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
-const dbname = "rubox"
-const dbtoken = new Stored<string>(dbname + servermode + "-token", "");
-
-const {log} = console;
+export {}
 
 
-DbConnection.builder()
-.withUri(serverurl)
-.withModuleName(dbname)
-.withToken(dbtoken.get())
-.onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
-  dbtoken.set(token)
-  let funcodes = new Stored<string[]>(dbname + servermode + "-funcodes", [])
 
-  console.log(funcodes.key);
+import { chatView } from "./clients/chatbox"
+import { button, div, h2, p } from "./html"
+import { Stored } from "./store"
+import { connectServer, ServerConnection } from "./userspace"
+
+
+
+export type PageComponent = (server:ServerConnection) => HTMLElement
+
+
+connectServer("ws://localhost:3000", "rubox", new Stored<string>("rubox-token", "")).then((server:ServerConnection)=>{
   
 
+  const appname = "LamBox"
+  document.title = appname
 
-  let result = new Stored<string>(dbname + servermode + "-result", "")
-  const storeCache = new Map<bigint, string>();
+  type Location= {
+    serverLocal: boolean,
+    frontendLocal: boolean,
+    path: string[]
+  } 
 
-  conn.subscriptionBuilder()
-  .onApplied(c=>{  
-    c.db.host.onInsert((c,host)=>{})
-    console.log(identity.data)
-    c.db.store.onInsert((c,store)=>{
+  function getLocation():Location{
 
-      if (store.owner.data == identity.data){
-        console.log("insert", store)
-        storeCache.set(store.key, store.content)
-      }
-    })
+    const items = window.location.pathname.split("/").filter(Boolean)
 
-    c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
-      const key = await hashFunArgs(identity, other, app, lam, arg)
-      if (ctx.event.status.tag == "Failed") result.set(ctx.event.status.value)
-      else result.set(storeCache.get(key) || "<not in cache>")
-    })
-
-  })
-  .onError(console.error)
-  .subscribe([
-    `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
-    `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
-  ])
-
-  console.log("identity", identity.toHexString())
-
-  const funinputs = new Writable<HTMLElement[]>([])
-
-  funcodes.update(fs => {
-
-    ff[0] = "";
-    return ff
-  }, true)
-
-  funcodes.subscribe(fs =>{
-    log(fs)
-    const addone = input()
-    addone.oninput = () =>{
-      funcodes.update(fs => [...fs, addone.value])
+    const serverLocal = items.includes("local")
+    const frontendLocal = ! items.includes(appname)
+      
+    return {
+      serverLocal,
+      frontendLocal,
+      path: items.filter(x=>x!='local' && x!= appname)
     }
-    funinputs.set([
-      ...fs.map((f,i) => {
-        const ip = input(f, {style:{width:"20em"}})
-        ip.oninput = ()=>{
-          funcodes.update(fs => {
-            fs[i] = ip.value
-            return fs
-          }, true)
+  }
+
+
+  let location  = getLocation()
+
+  const serverurl = location.serverLocal ? "http://localhost:8080" : "https://lambox.chickenkiller.com/"
+
+
+  const body = document.body;
+
+  const home = () => div(
+    h2("home"),
+    p("welcome to the rubox"),
+    ...apps.filter(x=>x.path).map(app => p(
+      button(app.path, {
+        onclick: () => {
+          route(app.path.split('/'))
         }
-        const arginput = input()
-        return p(
-          `f${i}:`,
-          ip,
-          button("remove", {onclick:()=>{funcodes.update(fs => fs.filter((_,j)=>j!=i))}}),
-          button("call", {onclick:async()=>{
-            const code = funcodes.get()[i]
-            const arg = arginput.value
-            const app : AppData = { setup : "", functions : [code] }
-            const hashed = await hashApp(app)
-            conn.reducers.publish(app)
-            conn.reducers.sethost(hashed.hash,true)
-            conn.reducers.callLambda(
-              conn.identity,
-              hashed.hash,
-              hashed.lambdas[0],
-              arg
-            )
-          }}),
-          arginput
-        )
-      }),
-      button("+f", {onclick:()=>{funcodes.update(fs => [...fs, ""])}})
-    ])
+      })
+    ))
+  )
+
+
+  const apps : {
+    init: (server:ServerConnection) => HTMLElement,
+    path: string,
+    cache? : HTMLElement
+  }[] = [
+    {init: home, path: "", cache: undefined},
+    {init: (server)=>chatView(server), path: "chat", cache: undefined},
+    // {init: chessView, path: "chess", cache: undefined},
+    // {init: url => Console(url, cmd => eval(cmd)), path: "console", cache: undefined},
+    // {init: AntFarm, path: "antfarm", cache: undefined}
+
+  ]
+
+  route(location.path)
+
+
+  window.addEventListener("popstate", (e) => {
+    location = getLocation() 
+    route(location.path)
   })
 
-  appView.set(div(
-    h2('welcome'),
-    p("funcode"),
-    funinputs,
-    p(),
-    p(result)
-  ))
+
+  function route(path: string[]){
 
 
-}).build()
+    let  newpath = (location.serverLocal? "local" : "") + "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/')
+    newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
+    
+    window.history.pushState({}, "", newpath)
+    body.innerHTML = ''
+    body.style.fontFamily = "monospace"
+    body.style.textAlign = "center"
+    for (const app of apps){
+      if (app.path === path.join('/')){
+        if (!app.cache){
+          app.cache = app.init(server)
+        }
+        body.appendChild(app.cache)
+      }
+    }
+  }
 
 
-document.body.appendChild(div(
-  appView,
-  {style:{
-    "font-family":"monospace",
-    "padding-left": "2em"
 
-  }}
-))
+})

@@ -40,21 +40,28 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
 
       Ok(mk_let(name, init, body))
     }
-    Rule::fun => {
-      let mut inner = pair.into_inner();
-      let params_pair = inner.next().unwrap();
-      let params = build_params(params_pair);
-      let body = build_expr(inner.next().unwrap())?;
-      Ok(mk_fn(params,body))
-    }
-
-    // Rule::multiline_fn => {
+    // Rule::fun => {
     //   let mut inner = pair.into_inner();
     //   let params_pair = inner.next().unwrap();
     //   let params = build_params(params_pair);
     //   let body = build_expr(inner.next().unwrap())?;
     //   Ok(mk_fn(params,body))
     // }
+
+    Rule::fun => {
+      let mut inner = pair.into_inner();
+      let params_pair = inner.next().unwrap();
+      let params = build_params(params_pair);
+    
+      let body_pair = inner.next().unwrap();
+      let body_expr = match body_pair.as_rule() {
+        Rule::block => build_block_as_expr(body_pair)?,
+        _ => build_expr(body_pair)?,
+      };
+    
+      Ok(mk_fn(params, body_expr))
+    }
+    
 
     Rule::primary => build_expr(pair.into_inner().next().unwrap()),
     Rule::operand => build_expr(pair.into_inner().next().unwrap()),
@@ -197,6 +204,65 @@ fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
     elems.push(ArrElem::Expr(build_expr(p)?));
   }
   Ok(Expr::Array(elems))
+}
+
+fn build_block_as_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
+  // Desugar:
+  // {
+  //   let x = e1;
+  //   stmt;
+  //   return r;
+  // }
+  // =>
+  // let x = e1; r
+  //
+  // If no `return`, the result is the last expression statement.
+  // If neither present, result is `undefined`.
+  let mut lets: Vec<(String, Expr)> = Vec::new();
+  let mut result: Option<Expr> = None;
+  let mut saw_return = false;
+
+  for p in pair.into_inner() {
+    if saw_return {
+      // Ignore anything after the first return
+      continue;
+    }
+    match p.as_rule() {
+      Rule::let_stmt => {
+        let mut inner = p.into_inner(); // ident, expr
+        let name = inner.next().unwrap().as_str().to_string();
+        let init = build_expr(inner.next().unwrap())?;
+        lets.push((name, init));
+      }
+      Rule::expr_stmt => {
+        // Keep the last expression statement as fallback result
+        let expr = build_expr(p.into_inner().next().unwrap())?;
+        result = Some(expr);
+      }
+      Rule::return_stmt => {
+        // Optional expression in return
+        let mut inner = p.into_inner();
+        let expr = match inner.next() {
+          Some(expr_pair) => build_expr(expr_pair)?,
+          None => Expr::Value(Box::new(Value::Undefined)),
+        };
+        result = Some(expr);
+        saw_return = true;
+      }
+      // Allow stray semicolons (no-op)
+      _ => {}
+    }
+  }
+
+  // Default to undefined if nothing produced a value
+  let mut body = result.unwrap_or_else(|| Expr::Value(Box::new(Value::Undefined)));
+
+  // Fold `let` statements outward: let a = init; body
+  for (name, init) in lets.into_iter().rev() {
+    body = mk_let(name, init, body);
+  }
+
+  Ok(body)
 }
 
 fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {

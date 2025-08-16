@@ -61,11 +61,11 @@ pub fn do_eval(
       Expr::Value(val) => Ok(val.clone().into()),
       Expr::Fn(params, body) => {
 
-          Ok(v(Value::Closure(Closure {
-              params: params.clone(),
-              body: *body.clone(),
-              env: env.clone(),
-          })))
+        Ok(v(Value::Closure(Closure {
+            params: params.clone(),
+            body: *body.clone(),
+            env: env.clone(),
+        })))
       }
 
       Expr::Call(func_expr, arg_exprs) => {

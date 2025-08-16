@@ -179,6 +179,7 @@ impl From<im::HashMap<String, Rc<Value>>> for Value {
 
 
 
+
 use std::convert::TryFrom;
 
 #[derive(Debug)]
@@ -275,3 +276,7 @@ pub fn mk_object(elems: Vec<(String, Expr)>) -> Expr {
   Expr::Object(elems.into_iter().map(|(k,v)| ObjElem::Expr((k,v))).collect())
 }
 
+
+pub fn mk_native_fn(fname: String) -> Expr {
+  Expr::Value(Box::new(Value::NativeFn(fname)))
+}

@@ -1,5 +1,4 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-
 COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
 
 ident      = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
@@ -19,22 +18,24 @@ prop       = { ident ~ ":" ~ expr }
 array      = { "[" ~ (expr ~ ("," ~ expr)* ~ (",")?)? ~ "]" }
 object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
 
-
+/* Existing expression-level let-in form retained */
 let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" ~ expr }
-fun        = { params  ~ "=>" ~ expr }
 
+/* New: statements and blocks for block-bodied functions */
+let_stmt       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
+return_stmt    = { "return" ~ expr? ~ ";"? }
+expr_stmt      = { expr ~ ";" }
+stmt           = _{ let_stmt | return_stmt | expr_stmt | ";" }
+block          = { "{" ~ stmt* ~ "}" }
 
-
-
-
+/* Arrow function now supports either an expression or a block body */
+fun        = { params ~ "=>" ~ (block | expr) }
 
 primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" }
 
-
 field = {"." ~ ident}
 index = {"[" ~ expr ~ "]"}
-
-access_chain = {primary  ~ (field | index | arglist)+}
+access_chain = { primary ~ (field | index | arglist)+ }
 
 operand    = { access_chain | primary }
 op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" }
@@ -42,8 +43,6 @@ binop      = { operand ~ op ~ operand }
 
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
 
-
-expr       = _{ ( let_  | fun  | cond | binop | access_chain | primary) }
-
+expr       = _{ ( let_ | fun | cond | binop | access_chain | primary ) }
 
 program    = { SOI ~ expr ~ EOI }

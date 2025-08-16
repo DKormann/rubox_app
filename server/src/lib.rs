@@ -16,7 +16,7 @@ mod lang;
 
 use lang::parser::*;
 
-use crate::lang::{ast::{EnvData, Value}, readback::read_back, runtime::{do_eval, env_extend}};
+use crate::lang::{ast::{mk_object, EnvData, Expr, Value}, readback::read_back, runtime::{do_eval, env_extend, eval}};
 
 #[table(name = lambda, public)]
 pub struct Lambda{
@@ -48,6 +48,7 @@ pub struct Host{
 }
 
 
+#[derive(Clone)]
 #[table(name = store, public)]
 pub struct Store{
   #[primary_key]
@@ -91,6 +92,14 @@ pub fn hash_app(setup:&str, functions:Vec<u256>)->u256{
 }
 
 
+pub fn hash_key(owner:Identity, app:u256, key:&str)->u256{
+  let mut hash = Sha256::new();
+  hash.update(owner.to_be_byte_array());
+  hash.update(app.to_be_bytes());
+  hash.update(key);
+  return u256::from_be_bytes(*hash.finalize().as_ref())
+}
+
 
 #[reducer]
 pub fn sethost(ctx: &ReducerContext, app:u256, value:bool){
@@ -116,8 +125,14 @@ pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&st
 
 
 
+
 #[spacetimedb::reducer]
 pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg:String)->Result<(), String>{
+
+  let dbctxex = mk_object(vec![("DB".into(), mk_object(vec![
+    ("set".into(), (Value::NativeFn("DBSet".into())).into()),
+    ("get".into(), (Value::NativeFn("DBGet".into())).into()),
+  ]))]);
 
   let by_host_and_app: RangedIndex<_, (Identity, u256), _> = ctx.db.host().hostkey();
   by_host_and_app.filter((other, app)).next().ok_or("app not installed on other")?;
@@ -126,31 +141,31 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
 
-  let fullcode = format!("({})({})", lam.code, arg);
+
+  let lamex = parse(&lam.code).map_err(|e| e.to_string())?;
+  let argex = parse(&arg).map_err(|e| e.to_string())?;
+
+  let finast = Expr::Call(Box::new(lamex), vec![dbctxex, argex]);
 
 
-  let ast = parse(&fullcode).map_err(|e| e.to_string())?;
-
-  let res = do_eval(&ast,
-    &Rc::new(EnvData{
-      bindings: RefCell::new(HashMap::from_iter(vec![
-        ("DBSet".into(), Rc::new(Value::NativeFn("DBSet".into()))),
-        ("DBGet".into(), Rc::new(Value::NativeFn("DBGet".into()))),
-      ])),
-      parent: None,
-    }),
+  let res = do_eval(&finast,
+    &Rc::new(EnvData{bindings: RefCell::new(HashMap::new()), parent: None,}),
     |fname: &str, args: Vec<Value>|{
 
-    let _innerres: Result<Value, String> = 
     match (fname, args.as_slice()){
-      ("DBSet", [Value::Boolean(forme), Value::String(key), Value::String(content)]) => {
-        if *forme {
-          ctx.db.store().try_insert(Store{key:hash_string(&key), owner:ctx.sender, content:"content".into()})?;
-        };
+      ("DBSet", [Value::Boolean(from_me), Value::String(key), Value::String(content)]) => {
+
+        let owner = if *from_me {ctx.sender} else {other};
+        let key = hash_key(owner, app.id, &key);
+        log::info!("setting {}, {}, {}", owner, app.id, &key);
+        ctx.db.store().try_insert(Store{key, owner:ctx.sender, content:content.clone()})?;
         Ok(Value::Null)
       },
-      ("DBGet", [Value::String(key)]) => {
-        let store = ctx.db.store().key().find(hash_string(&key)).ok_or("key not found");
+      ("DBGet", [Value::Boolean(from_me), Value::String(key)]) => {
+        let owner = if *from_me {ctx.sender} else {other};
+        let key = hash_key(owner, app.id, &key);
+        log::info!("getting {}, {}, {}", owner, app.id, &key);
+        let store = ctx.db.store().key().find(key).ok_or("key not found");
         match store {
           Ok(store) => Ok(Value::String(store.content)),
           Err(e) => Ok(Value::String("".into())),
@@ -158,21 +173,28 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
       },
 
       (_, _) => return Err("function not found".to_string())
-    };
-    
-    Ok(Value::Int(22))
+    }
   })?;
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
-  log::info!("inserting {} for {}", key, ctx.sender.to_u256());
+  log::info!("inserting result {} for {}", key, ctx.sender.to_u256());
 
-  ctx.db.store().try_insert(Store{
+
+  let item  = Store{
     key:key,
     owner:ctx.sender,
-    content:read_back(&res)})?;
+    content:read_back(&res)
+  };
 
-  Ok(())
+  match ctx.db.store().try_insert(item.clone()){
+    Ok(_) => Ok(()),
+    Err(e) => {
+      ctx.db.store().key().update(item);
+      Ok(())
+    }
+  }
+
 
 }
