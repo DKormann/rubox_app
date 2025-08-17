@@ -21,33 +21,44 @@ export type DBTable <T extends Serial> = DBRow<T> & {
 
 
 export type DefaultContext = {
-  self: Identity,
-  other: Identity,
+  self: IdString,
+  other: IdString,
 
   DB: {
-    get: (from_me:boolean, key:string) => Serial,
-    set: (from_me:boolean, key:string, value:Serial) => void,
+    get: <T> (from_me:boolean, key:string) => T,
+    set: <T> (from_me:boolean, key:string, value:T) => void,
   }
 }
 
 export type Serial = string | number | boolean | null | Serial [] | { [key: string]: Serial } | [Serial, Serial]
 
 
-export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => void | Serial
+export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
 
 export type AppHandle<C> = {
-  call:(target:Identity, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
-  users:() => Promise<Identity[]>,
+  call:(target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
+  users:() => Promise<IdString[]>,
 }
 
 export type ServerConnection = {
-  identity:Identity,
+  identity:IdString,
   handle:<C>(box:Box<C>) => Promise<AppHandle<C>>,
 }
 
 export type Box<C> = {
   getCtx : (c:DefaultContext) => C
   api: { [key: string]: APIFunction <C> }
+}
+
+
+export type IdString = `id${string}`
+
+export const IdString = (id:Identity)=>{
+  return 'id'+id.toHexString() as IdString
+}
+
+export const IdentityFromString = (s:IdString)=>{
+  return new Identity(s.slice(2))
 }
 
 
@@ -114,26 +125,26 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
         conn.reducers.sethost(hashed.hash, true)
 
-        let call : (target:Identity, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
+        let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
           return new Promise<any>(async (resolve, reject) => {
             const argstring = JSON.stringify(arg);
             const funstring = fn.toString()
-            const callH = await hashFunArgs(identity, target, hashed.hash, await hashString(funstring), argstring)
+            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
 
             const lamH = await hashString(funstring)
 
             lamQueue.set(callH, {resolve, reject})
-            conn.reducers.callLambda(target, hashed.hash, lamH, argstring)
+            conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
           })
         }
 
-        let users : () => Promise<Identity[]> =  () => {
+        let users : () => Promise<IdString[]> =  () => {
 
-          return new Promise<Identity[]>(async (resolve, reject) => {
+          return new Promise<IdString[]>(async (resolve, reject) => {
           let sub = conn.subscriptionBuilder()
           .onApplied(c=>{
             sub.unsubscribe()
-            resolve(Array.from(c.db.host.iter()).filter(h=>h.app == hashed.hash).map(h=>h.host))
+            resolve(Array.from(c.db.host.iter()).filter(h=>h.app == hashed.hash).map(h=>IdString(h.host)))
           })
           .onError(reject)
           .subscribe([
@@ -149,7 +160,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         return apphandle
       }
 
-      resolve({identity, handle})
+      resolve({identity: IdString(identity), handle})
    
     }).build()
   })

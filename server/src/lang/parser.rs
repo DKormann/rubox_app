@@ -9,14 +9,13 @@ use pest_derive::Parser;
 
 use crate::lang::ast::*;
 
-/// Create a new (empty) frame whose parent is `parent`.
+// Create a new (empty) frame whose parent is `parent`.
 fn env_extend(parent: Option<EnvRef>) -> EnvRef {
     Rc::new(EnvData {
         bindings: RefCell::new(HashMap::new()),
         parent,
     })
 }
-
 
 #[derive(Parser)]
 #[grammar = "lang/funscript.pest"]
@@ -121,8 +120,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
   }
 }
 
-
-
 fn build_params(pair: pest::iterators::Pair<Rule>) -> Vec<String> {
   let mut params: Vec<String> = Vec::new();
   let inner = pair.into_inner();
@@ -200,7 +197,29 @@ fn unescape_basic_string(input: &str) -> String {
 fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
   let mut elems: Vec<ArrElem> = Vec::new();
   for p in pair.into_inner() { // expr items
-    elems.push(ArrElem::Expr(build_expr(p)?));
+    match p.as_rule() {
+      Rule::arrayItem => {
+
+        let mut inner = p.into_inner().next().unwrap();
+        elems.push(
+          match inner.as_rule(){
+            Rule::arrayItem => {
+              let expr = build_expr(inner.into_inner().next().unwrap())?;
+              ArrElem::Spread(expr)
+            }
+            Rule::spread => {
+              let expr = build_expr(inner.into_inner().next().unwrap())?;
+              ArrElem::Spread(expr)
+            }
+            _ => {
+              let expr = build_expr(inner)?;
+              ArrElem::Expr(expr)
+            }
+          }
+        );
+      }
+      _ => unreachable!("unhandled rule: {:?}", p.as_rule()),
+    }
   }
   Ok(Expr::Array(elems))
 }
@@ -268,7 +287,34 @@ fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::
   let mut props: Vec<ObjElem> = Vec::new();
   for p in pair.into_inner() { // prop items
     let mut inner = p.into_inner();
-    let key = inner.next().unwrap().as_str().to_string();
+
+    // let k= build_literal(inner.next().unwrap())?;
+
+    // let key  = match k {
+    //   Expr::Var(s) => s,
+    //   Expr::Value(v)=>{
+    //     match *v{
+    //       Value::String(s)=>s,
+    //       _ => unreachable!(),
+    //     }
+    //   },
+    //   _ => unreachable!(),
+    // };
+
+    let k = inner.next().unwrap();
+    let key : String = match k.as_rule(){
+      Rule::string => {
+        let s = k.as_str().to_string();
+        s[1..s.len()-1].to_string()
+      },
+      Rule::ident => {
+        k.as_str().to_string()
+      },
+      _ => unreachable!(),
+    };
+    
+
+    // let key = inner.next().unwrap().as_str().to_string();
     let val = build_expr(inner.next().unwrap())?;
     props.push(ObjElem::Expr((key, val)));
   }

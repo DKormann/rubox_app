@@ -1,34 +1,50 @@
+import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { button, div, h2, input, p } from "../html";
 import { PageComponent } from "../main";
 import { Box, DefaultContext, ServerConnection } from "../userspace";
 
 
 type msgCtx = {
-  a:number
+  a:number,
+  pushMsg: (msg:string)=>void
 }
 
+
+
+
+type Msg = {
+  sender:Identity
+
+}
 
 const msgBox : Box<msgCtx> = {
   getCtx: (c:DefaultContext) => {
     return {
-      a: 1
+      a: 1,
+
+      pushMsg: (msg:string)=>{
+        c.DB.set(false, "messages", [...c.DB.get<Msg[]> (false, "messages") ?? [], {sender:c.self, message:msg}])
+      }
     }
   },
   api: {
 
     setname:(ctx, arg)=>{
-      ctx.DB.set(true, "name", arg)
+      ctx.DB.set(false, "name", arg)
     },
 
     getname:(ctx,arg)=>{
       return ctx.DB.get(true, "name")
     },
 
-    geta:(ctx, arg)=>{
-      let v = ["fv'vf", 22];
-      let _ = ctx.DB.set(true, "a", v);
-      return ctx.DB.get(true, "a")
+    sendMessage:(ctx,arg:string)=>{
+      ctx.pushMsg(arg)
+    },
+
+    getMessages(ctx){
+      return ctx.DB.get(true, "messages")
     }
+
   }
 }
 
@@ -37,6 +53,8 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   let adis = p()
   let fire = button("fire")
   let el = div()
+
+  console.log(JSON.stringify(conn.identity))
 
   conn.handle(msgBox).then(async ({call, users})=>{
     fire.onclick = async () => {
@@ -54,11 +72,18 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
     getmyname()
 
     let myname = input()
+
+    let msginput = input()
+    let send = button("send")
+    send.onclick = async () => {
+      console.log(await call(conn.identity, msgBox.api.sendMessage, msginput.value))
+    }
   
     el.appendChild(div(
       h2("this chat"),
       fire,
       adis,
+
   
       p("my name:",myname, button("update", {
         onclick: () => {
@@ -67,7 +92,11 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
             getmyname()
           })
         }
-      }))
+      })),
+
+      p("send message:",msginput, send),
+
+
   
     ))
   })

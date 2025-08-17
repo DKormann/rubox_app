@@ -262,6 +262,10 @@ pub fn mk_array(elems: Vec<Expr>) -> Expr {
   Expr::Array(elems.into_iter().map(|e| ArrElem::Expr(e)).collect())
 }
 
+pub fn mk_array_spread(elem: Expr) -> ArrElem {
+  ArrElem::Spread(elem)
+}
+
 pub fn mk_index(primary: Expr, index: Expr) -> Expr {
   Expr::Index(Box::new(primary), Box::new(index))
 }

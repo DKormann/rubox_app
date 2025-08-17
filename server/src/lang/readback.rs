@@ -15,7 +15,7 @@ pub fn read_back(a:&Value)->String{
       format!("[{}]", arr.iter().map(|i| read_back(i)).collect::<Vec<_>>().join(", "))
     },
     Value::Object(obj)=>{
-      format!("{{{}}}", obj.iter().map(|(k,v)| format!("{}: {}, ", k, read_back(v))).collect::<Vec<_>>().join(", "))
+      format!("{{{}}}", obj.iter().map(|(k,v)| format!("\"{}\": {} ", k, read_back(v))).collect::<Vec<_>>().join(", "))
     },
     Value::Closure(cl)=>{
       "[Closure]".into()

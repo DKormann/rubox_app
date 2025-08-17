@@ -1,5 +1,11 @@
+
+// runtime should be equivalent to JavaScript semantics
+
+
 #[allow(dead_code)]
 #[allow(unreachable_code)]
+
+
 
 use im::HashMap;
 use std::rc::Rc;
@@ -24,7 +30,10 @@ fn cmp_strings(a: &String, b: &String, op: &str) -> Result<VRef, String> {
 }
 
 fn cmp_bools(a: bool, b: bool, op: &str) -> Result<VRef, String> {
-  let res = match op { "==" => a == b, "!=" => a != b, ">" => a && !b, "<" => !a && b, ">=" => a || (!a && !b), "<=" => !a || (a && b), _ => unreachable!() };
+  let res = match op { "==" => a == b, "!=" => a != b, ">" => a && !b, "<" => !a && b, ">=" => a || (!a && !b), "<=" => !a || (a && b),
+  "||" => a || b,
+  "&&" => a && b,
+  _ => unreachable!() };
   Ok(v(Value::Boolean(res)))
 }
 
@@ -47,6 +56,20 @@ fn lookup(env: &EnvRef, name: &str) -> Option<VRef> {
 
 pub fn eval(expr: &Expr)->Result<VRef, String>{
   do_eval(expr,&env_extend(None),|_, _| Err("native function not found".into()))
+}
+
+pub fn cast_bool(val: &Value)->bool{
+  match val {
+    Value::Boolean(b) => *b,
+    Value::Int(i)=>*i != 0,
+    Value::Float(f)=>*f != 0.0,
+    Value::String(s)=>!s.is_empty(),
+    Value::Array(arr)=>!arr.is_empty(),
+    Value::Object(obj)=>!obj.is_empty(),
+    Value::Null=>false,
+    Value::Undefined=>false,
+    _ => true,
+  }
 }
 
 pub fn do_eval(
@@ -291,19 +314,8 @@ pub fn do_eval(
       },
       Expr::Conditional(c,t,e) => {
         let v = do_eval(c, env, native_fns.clone())?;
-        let truthy = match v.as_ref() {
-          Value::Boolean(b) => *b,
-          Value::Null | Value::Undefined => false,
-          Value::Int(n) => *n != 0,
-          Value::Float(f) => *f != 0.0,
-          Value::String(s) => !s.is_empty(),
-          Value::Array(a) => !a.is_empty(),
-          Value::Object(o) => !o.is_empty(),
-          Value::Closure(_) => true,
-          Value::Builtin(_) => true,
-          Value::NativeFn(_) => true,
-        };
-        if truthy { do_eval(t, env, native_fns.clone()) } else { do_eval(e, env, native_fns) }
+
+        if cast_bool(&v) { do_eval(t, env, native_fns.clone()) } else { do_eval(e, env, native_fns) }
       },
       Expr::Binop(left, op, right) => {
 
@@ -352,6 +364,11 @@ pub fn do_eval(
               Err("numeric operator on non-numeric values".into())
             }
           }
+
+          "||" =>Ok(if cast_bool(&lv ) { lv } else { rv } .clone()),
+          "&&" =>Ok(if cast_bool(&lv ) { rv } else { lv } .clone()),
+          "??" =>Ok(match lv.as_ref() {Value::Null | Value::Undefined => rv, _ => lv,}.clone()),
+
           "==" | "!=" | ">" | "<" | ">=" | "<=" => {
             let res = match (lv.as_ref(), rv.as_ref(), op.as_str()) {
               // numeric comparisons (coerce to float)

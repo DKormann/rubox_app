@@ -16,9 +16,12 @@ literal    = _{ float | int | string | string2 | boolean | null | undefined }
 
 params     = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
 arglist    = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
-prop       = { ident ~ ":" ~ expr }
+prop       = { ( ident | string ) ~ ":" ~ expr }
 
-array      = { "[" ~ (expr ~ ("," ~ expr)* ~ (",")?)? ~ "]" }
+spread     = { "..." ~ expr }
+arrayItem  = { expr | spread }
+
+array      = { "[" ~ (arrayItem ~ ("," ~ arrayItem)* ~ (",")?)? ~ "]" }
 object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
 
 /* Existing expression-level let-in form retained */
@@ -41,7 +44,7 @@ index = {"[" ~ expr ~ "]"}
 access_chain = { primary ~ (field | index | arglist)+ }
 
 operand    = { access_chain | primary }
-op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" }
+op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" | "||" | "&&" | "??" }
 binop      = { operand ~ op ~ operand }
 
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }

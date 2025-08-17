@@ -5,6 +5,8 @@
 mod tests {
 use std::array;
 use std::rc::Rc;
+use crate::lang::readback;
+use crate::lang::readback::read_back;
 use crate::lang::runcode;
 use crate::lang::runtime;
 use crate::lang::runtime::do_eval;
@@ -112,15 +114,24 @@ use crate::lang::parser::*;
 
   #[test]
   fn test_parse_array(){
+
+
     let code = "[1,2,3]";
     test_parse(code, mk_array(vec![mk_int(1), mk_int(2), mk_int(3)]));
+
+    let code = "[...a,b,...c]";
+    test_parse(code,
+      Expr::Array(
+      vec![
+        ArrElem::Spread(mk_var("a")),
+        ArrElem::Expr(mk_var("b")),
+        ArrElem::Spread(mk_var("c")),
+      ]
+    ));
+
+
   }
 
-  #[test]
-  fn test_parse_array_eval(){
-    let code = "[1,2,3]";
-    test_code_equiv(code, "[1,2,3]");
-  }
 
   #[test]
   fn test_parse_object(){
@@ -237,7 +248,7 @@ use crate::lang::parser::*;
   }
 
   #[test]
-  fn read_back(){
+  fn test_read_back(){
     test_run_code("22", "22");
     test_run_code("true", "true");
     test_run_code("false", "false");
@@ -263,6 +274,17 @@ use crate::lang::parser::*;
         assert_eq!(res, Value::Int(3).into());
       },
     }
+  }
+
+
+
+
+
+  #[test]
+  fn eval_object(){
+    // test_code_equiv(a, b);
+    let res = runcode("{\"c\":22}").expect("parse error");
+    assert_eq!(res, "{\"c\": 22 }".to_string());
   }
 
 

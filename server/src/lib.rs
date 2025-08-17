@@ -123,16 +123,23 @@ pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&st
 }
 
 
+fn identity_string(id:Identity)->String{
+  format!("id{}", id.to_hex())
+}
 
 
 
 #[spacetimedb::reducer]
 pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg:String)->Result<(), String>{
 
-  let dbctxex = mk_object(vec![("DB".into(), mk_object(vec![
-    ("set".into(), (Value::NativeFn("DBSet".into())).into()),
-    ("get".into(), (Value::NativeFn("DBGet".into())).into()),
-  ]))]);
+  let dbctxex = mk_object(vec![
+    ("DB".into(), mk_object(vec![
+      ("set".into(), (Value::NativeFn("DBSet".into())).into()),
+      ("get".into(), (Value::NativeFn("DBGet".into())).into()),
+    ])),
+    ("self".into(), (Value::String(identity_string(ctx.sender)).into())),
+    ("other".into(), (Value::String(identity_string(other)).into())),
+    ]);
 
   let by_host_and_app: RangedIndex<_, (Identity, u256), _> = ctx.db.host().hostkey();
   by_host_and_app.filter((other, app)).next().ok_or("app not installed on other")?;
