@@ -1,7 +1,8 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { button, div, h2, input, p } from "../html";
 import { PageComponent } from "../main";
-import { Box, DefaultContext, ServerConnection } from "../userspace";
+import { Box, DefaultContext, IdString, ServerConnection } from "../userspace";
+import { Stored, Writable } from "../store";
 
 
 type msgCtx = {
@@ -13,8 +14,8 @@ type msgCtx = {
 
 
 type Msg = {
-  sender:Identity
-
+  sender:IdString,
+  message:string
 }
 
 const msgBox : Box<msgCtx> = {
@@ -41,7 +42,7 @@ const msgBox : Box<msgCtx> = {
       ctx.pushMsg(arg)
     },
 
-    getMessages(ctx){
+    getMessages:(ctx,arg)=>{
       return ctx.DB.get(true, "messages")
     }
 
@@ -54,7 +55,6 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   let fire = button("fire")
   let el = div()
 
-  console.log(JSON.stringify(conn.identity))
 
   conn.handle(msgBox).then(async ({call, users})=>{
     fire.onclick = async () => {
@@ -73,10 +73,37 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
 
     let myname = input()
 
+    let msgDisplay = new Writable<HTMLElement>(div());
+
+    let msgs = new Stored<Msg[]>("msgs", [])
+
+    msgs.subscribe((msgs)=>{
+      msgDisplay.set(div(
+        msgs.map(msg=>p(
+          msg.sender.slice(0,10),
+          " : ",
+          msg.message
+        )),
+        {style:{
+          "max-width": "20em",
+          "margin": "auto",
+          // "text-align": "left",
+        }}
+      ))
+    })
+
     let msginput = input()
     let send = button("send")
     send.onclick = async () => {
       console.log(await call(conn.identity, msgBox.api.sendMessage, msginput.value))
+
+      call(conn.identity, msgBox.api.getMessages).then((msg:Msg[])=>{
+
+        msgs.set(msg)
+      })
+
+
+
     }
   
     el.appendChild(div(
@@ -84,7 +111,6 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
       fire,
       adis,
 
-  
       p("my name:",myname, button("update", {
         onclick: () => {
 
@@ -93,6 +119,8 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
           })
         }
       })),
+
+      msgDisplay,
 
       p("send message:",msginput, send),
 

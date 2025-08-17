@@ -4,7 +4,7 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use spacetimedb::{reducer, sats::u256, table, Identity, RangedIndex, ReducerContext, SpacetimeType, Table};
+use spacetimedb::{reducer, sats::u256, spacetimedb_lib::db, table, Identity, RangedIndex, ReducerContext, SpacetimeType, Table};
 use sha2::{Sha256, Digest};
 
 
@@ -16,7 +16,7 @@ mod lang;
 
 use lang::parser::*;
 
-use crate::lang::{ast::{mk_object, EnvData, Expr, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval}};
+use crate::lang::{ast::{mk_call, mk_object, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval}};
 
 #[table(name = lambda, public)]
 pub struct Lambda{
@@ -146,13 +146,28 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   by_host_and_app.filter((ctx.sender, app)).next().ok_or("app not installed on self")?;
 
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
+
+  
+
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
+
+  let setup = app.setup;
+
+  
 
 
   let lamex = parse(&lam.code).map_err(|e| e.to_string())?;
   let argex = parse(&arg).map_err(|e| e.to_string())?;
+  let get_ctx_ex = parse(&setup).map_err(|e| e.to_string())?;
 
-  let finast = Expr::Call(Box::new(lamex), vec![dbctxex, argex]);
+  let ctx_ex = mk_call(get_ctx_ex, vec![dbctxex.clone()]);
+
+  let ctx_ex = Expr::Object(vec![
+    ObjElem::Spread(dbctxex),
+    ObjElem::Spread(ctx_ex.into()),
+  ]);
+
+  let finast = Expr::Call(Box::new(lamex), vec![ctx_ex, argex]);
 
 
   let res = do_eval(&finast,
