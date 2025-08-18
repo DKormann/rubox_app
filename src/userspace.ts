@@ -43,11 +43,11 @@ export type AppHandle<C> = {
 
 export type ServerConnection = {
   identity:IdString,
-  handle:<C>(box:Box<C>) => Promise<AppHandle<C>>,
+  handle:<C>(box:ServerApp<C>) => Promise<AppHandle<C>>,
 }
 
-export type Box<C> = {
-  getCtx : (c:DefaultContext) => C
+export type ServerApp<C> = {
+  loadApp : (c:DefaultContext) => C
   api: { [key: string]: APIFunction <C> }
 }
 
@@ -135,15 +135,15 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
       const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
 
 
-      const handle : <C>(box:Box<C>) => Promise<AppHandle<C>> = async <C> (box:Box<C>) => {
+      const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
 
         let hashed = await hashApp({
-          setup:box.getCtx.toString(),
+          setup:box.loadApp.toString(),
           functions: Object.values(box.api).map(fn=>fn.toString())
         })
 
         conn.reducers.publish({
-          setup:box.getCtx.toString(),
+          setup:box.loadApp.toString(),
           functions: Object.values(box.api).map(fn=>fn.toString())
         })
 

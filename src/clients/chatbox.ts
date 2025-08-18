@@ -1,11 +1,11 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
-import { Box, DefaultContext, IdString, ServerConnection } from "../userspace";
+import { ServerApp, DefaultContext, IdString, ServerConnection } from "../userspace";
 import { Stored, Writable } from "../store";
 
 
-type msgCtx = {
+type ChatCtx = {
   pushMsg: (msg:string)=>void
 }
 
@@ -15,8 +15,8 @@ type Msg = {
   message:string
 }
 
-const msgBox : Box<msgCtx> = {
-  getCtx: (c:DefaultContext) => {
+const msgApp : ServerApp<ChatCtx> = {
+  loadApp: (c:DefaultContext) => {
     return {
 
       pushMsg: (msg:string)=>{
@@ -62,13 +62,13 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   let el = div()
   
   
-  conn.handle(msgBox).then(async ({call, users, subscribe})=>{
+  conn.handle(msgApp).then(async ({call, users, subscribe})=>{
     async function getName(id:IdString){
       let cached = nametable.get(id)
       if (cached) return cached
       let writable = new Writable<string>("")
 
-      call(id, msgBox.api.getname, id).then(name=>writable.set(name))
+      call(id, msgApp.api.getname, id).then(name=>writable.set(name))
       nametable.set(id, writable)
       return writable
     }
@@ -88,7 +88,7 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
     }
 
 
-    call(conn.identity, msgBox.api.getMessages).then(m=>msgs.set(m??[]))
+    call(conn.identity, msgApp.api.getMessages).then(m=>msgs.set(m??[]))
     msgs.subscribe(e=>displayMsgs())
     other.subscribeLater(no=>displayMsgs())
     subscribe("messages", (c:Msg[])=>{
@@ -102,7 +102,7 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
     let msginput = input()
     let send = button("send")
     send.onclick = async () => {
-      await call(other.get(), msgBox.api.sendMessage, msginput.value)
+      await call(other.get(), msgApp.api.sendMessage, msginput.value)
       msginput.value = ""
     }
 
@@ -117,7 +117,7 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
 
       p("my name:",myname, button("update", {
         onclick: () => {
-          call(conn.identity, msgBox.api.setname, myname.value).then(()=>{
+          call(conn.identity, msgApp.api.setname, myname.value).then(()=>{
             getName(conn.identity).then(name=>name.set(myname.value))
           })
         }
