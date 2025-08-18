@@ -91,6 +91,8 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
 
   function route(path: string[]){
 
+    console.log(location)
+
 
     let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
