@@ -71,6 +71,12 @@ use crate::lang::parser::*;
   }
 
   #[test]
+  fn test_parse_function_decl_expr(){
+    let code = "function fn() { return 3; }";
+    test_parse(code, mk_let("fn".into(), mk_fn(vec![], mk_int(3)), mk_var("fn")));
+  }
+
+  #[test]
   fn test_parse_call(){
     let code = "fn(22)";
     test_parse(code, mk_call(mk_var("fn"), vec![mk_int(22)]));
@@ -174,6 +180,16 @@ use crate::lang::parser::*;
     test_code_equiv("((x)=>x)(22)", "22");
     test_code_equiv("((x,y)=>y)(1,2)", "2");
     test_code_equiv("((x,y)=>x)(1,2)", "1");
+  }
+
+  #[test]
+  fn eval_function_decl(){
+    test_code_equiv("{ function add(a,b) { return a + b; } add(2,3); }", "5");
+  }
+
+  #[test]
+  fn eval_function_decl_no_return(){
+    test_code_equiv("{ function f() { let x = 2; x + 3; } f(); }", "undefined");
   }
 
   #[test]
@@ -308,6 +324,16 @@ use crate::lang::parser::*;
         assert_eq!(res, Value::Int(5).into());
       },
     }
+  }
+
+  #[test]
+  fn eval_function_decl_no_return_yields_null(){
+    test_code_equiv("{ function f() { let x = 2; x + 3; } f(); }", "undefined");
+  }
+
+  #[test]
+  fn eval_arrow_block_no_return_yields_null(){
+    test_code_equiv("{ let f = ()=> { let x = 2; x + 3; }; f(); }", "undefined");
   }
 
 

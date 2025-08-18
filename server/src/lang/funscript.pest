@@ -50,6 +50,6 @@ binop      = { operand ~ op ~ operand }
 
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
 
-expr       = _{ ( let_ | fun | function | cond | binop | access_chain | primary ) }
+expr       = _{ ( let_ | fun | function | block | cond | binop | access_chain | primary ) }
 
 program    = { SOI ~ expr ~ EOI }

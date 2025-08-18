@@ -17,6 +17,9 @@ export type PageComponent = (server:ServerConnection) => HTMLElement
 
 
 
+
+
+
 type Location= {
   serverLocal: boolean,
   frontendLocal: boolean,

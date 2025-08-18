@@ -47,11 +47,22 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     
       let body_pair = inner.next().unwrap();
       let body_expr = match body_pair.as_rule() {
-        Rule::block => build_block_as_expr(body_pair)?,
+        Rule::block => build_block_as_function_body(body_pair)?,
         _ => build_expr(body_pair)?,
       };
     
       Ok(mk_fn(params, body_expr))
+    }
+    Rule::function => {
+      // Desugar `function name(p1, p2) { ... }` to `let name = (p1, p2) => { ... }; name`
+      let mut inner = pair.into_inner();
+      let name = inner.next().unwrap().as_str().to_string();
+      let params_pair = inner.next().unwrap();
+      let params = build_params(params_pair);
+      let body_pair = inner.next().unwrap();
+      let body_expr = build_block_as_function_body(body_pair)?;
+      let init = mk_fn(params, body_expr);
+      Ok(mk_let(name.clone(), init, Expr::Var(name)))
     }
     
 
@@ -70,6 +81,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     Rule::int | Rule::float | Rule::string | Rule::string2 | Rule::boolean | Rule::null | Rule::undefined => build_literal(pair),
     Rule::array => build_array(pair),
     Rule::object => build_object(pair),
+    Rule::block => build_block_as_expr(pair),
     Rule::cond => {
       let mut inner = pair.into_inner();
       let c = build_expr(inner.next().unwrap())?;
@@ -252,8 +264,19 @@ fn build_block_as_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::
         let init = build_expr(inner.next().unwrap())?;
         lets.push((name, init));
       }
+      Rule::function => {
+        // Treat function declaration like a let-binding: let name = (..)=>{..};
+        let mut inner = p.into_inner();
+        let name = inner.next().unwrap().as_str().to_string();
+        let params_pair = inner.next().unwrap();
+        let params = build_params(params_pair);
+        let body_pair = inner.next().unwrap();
+        let body_expr = build_block_as_function_body(body_pair)?;
+        let init = mk_fn(params, body_expr);
+        lets.push((name, init));
+      }
+      // Keep the last expression statement as fallback result (for plain blocks)
       Rule::expr_stmt => {
-        // Keep the last expression statement as fallback result
         let expr = build_expr(p.into_inner().next().unwrap())?;
         result = Some(expr);
       }
@@ -276,6 +299,45 @@ fn build_block_as_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::
   let mut body = result.unwrap_or_else(|| Expr::Value(Box::new(Value::Undefined)));
 
   // Fold `let` statements outward: let a = init; body
+  for (name, init) in lets.into_iter().rev() {
+    body = mk_let(name, init, body);
+  }
+
+  Ok(body)
+}
+
+fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
+  // Same desugaring as blocks, but expression statements do not contribute
+  // to the return value; only explicit return sets the value.
+  let mut lets: Vec<(String, Expr)> = Vec::new();
+  let mut result: Option<Expr> = None;
+  let mut saw_return = false;
+
+  for p in pair.into_inner() {
+    if saw_return { continue; }
+    match p.as_rule() {
+      Rule::let_stmt => {
+        let mut inner = p.into_inner();
+        let name = inner.next().unwrap().as_str().to_string();
+        let init = build_expr(inner.next().unwrap())?;
+        lets.push((name, init));
+      }
+      Rule::return_stmt => {
+        let mut inner = p.into_inner();
+        let expr = match inner.next() {
+          Some(expr_pair) => build_expr(expr_pair)?,
+          None => Expr::Value(Box::new(Value::Undefined)),
+        };
+        result = Some(expr);
+        saw_return = true;
+      }
+      // Ignore expression statements for function return semantics
+      _ => {}
+    }
+  }
+
+  let mut body = result.unwrap_or_else(|| Expr::Value(Box::new(Value::Undefined)));
+
   for (name, init) in lets.into_iter().rev() {
     body = mk_let(name, init, body);
   }
