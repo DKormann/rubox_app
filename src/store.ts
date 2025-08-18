@@ -1,6 +1,6 @@
 export class Writable <T> {
   private value: T
-  private listeners: Array<(value: T) => void> = []
+  private listeners: Array<(value: T) => void> = [] 
 
   constructor(initialValue: T) {
     this.value = initialValue

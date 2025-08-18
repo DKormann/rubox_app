@@ -31,7 +31,7 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
 }
 
 
-type HTMLArg = string | number | HTMLElement | Partial<Record<htmlKey, any>> | Writable<any> | HTMLArg[]
+type HTMLArg = string | number | HTMLElement | Partial<Record<htmlKey, any>> | Writable<any> | Promise<HTMLArg> | HTMLArg[]
 
 
 export const html = (tag:string, ...cs:HTMLArg[]):HTMLElement=>{
@@ -44,6 +44,14 @@ export const html = (tag:string, ...cs:HTMLArg[]):HTMLElement=>{
     else if (arg instanceof Writable){
       const el = span()
       arg.subscribe((value)=>{
+        el.innerHTML = ""
+        el.appendChild(span(value))
+      })
+      children.push(el)
+    }
+    else if (arg instanceof Promise){
+      const el = span()
+      arg.then((value)=>{
         el.innerHTML = ""
         el.appendChild(span(value))
       })
@@ -111,19 +119,38 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
 export const popup = (dialogfield: HTMLElement)=>{
 
-  const popupbackground = htmlElement("div", "", "popup-background");
+  // const popupbackground = htmlElement("div", "", "popup-background");
+  const popupbackground = div(
+    {style:{
+      "position": "fixed",
+      "top": "0",
+      "left": "0",
+      "width": "100%",
+      "height": "100%",
+      "background": "rgba(166, 166, 166, 0.5)",
+      "display": "flex",
+      "justify-content": "center",
+      "align-items": "center",
+    }}
+  )
 
   popupbackground.appendChild(dialogfield);
   document.body.appendChild(popupbackground);
   popupbackground.onclick = () => {
     popupbackground.remove();
   }
-  dialogfield.classList.add("popup-dialog");
-  popupbackground.appendChild(htmlElement("div", "close", "popup-close", {
-    onclick: () => {
-      popupbackground.remove();
-    }
-  }))
+
+  dialogfield.style.background = "var(--bg)"
+  dialogfield.style.color = "var(--color)"
+  dialogfield.style.padding = "1em"
+  dialogfield.style.paddingBottom = "2em"
+  dialogfield.style.borderRadius = "1em"
+
+  // popupbackground.appendChild(p("close", {
+  //   onclick: () => {
+  //     popupbackground.remove();
+  //   }
+  // }))
 
   dialogfield.onclick = (e) => {
     e.stopPropagation();

@@ -49,6 +49,16 @@ export async function hashFunArgs(owner:Identity, other:Identity, app:bigint, la
   return toU256FromBytes(digest);
 }
 
+
+export async function hashStoreKey(owner:Identity, app:bigint, key:string): Promise<bigint> {
+  const ownerBytes = u256ToBeBytes(owner.data);
+  const appBytes = u256ToBeBytes(app);
+  const keyBytes = textEncoder.encode(key);
+  const allBytes = concatBytes([ownerBytes, appBytes, keyBytes]);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", allBytes));
+  return toU256FromBytes(digest);
+}
+
 export type HashedApp = {
   hash: bigint;
   lambdas: bigint[];

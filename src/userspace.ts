@@ -1,6 +1,6 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { App, AppData, DbConnection, Lambda } from "./module_bindings";
-import { hashApp, hashFunArgs, hashString } from "./lambox";
+import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
 
 
 
@@ -38,6 +38,7 @@ export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
 export type AppHandle<C> = {
   call:(target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
   users:() => Promise<IdString[]>,
+  subscribe:(keyname:string, callback:(value:any)=>void) => void
 }
 
 export type ServerConnection = {
@@ -66,6 +67,10 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
   return new Promise<ServerConnection>((resolve, reject) => {
 
+    let store_subs : Map <bigint, ((value:Serial)=>void)[]> = new Map()
+
+
+
     DbConnection.builder()
     .withUri(url)
     .withModuleName(dbname)
@@ -76,24 +81,41 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
       const storeCache = new Map<bigint, string>();
 
+
       conn.subscriptionBuilder()
       .onApplied(c=>{
 
+        console.log("APPLIED")
+
+        console.log(Array.from(c.db.store.iter()))
+
         c.db.store.onInsert((c,store)=>{
-          if (store.owner.data == identity.data){storeCache.set(store.key, store.content)}
+
+          if (store.owner.data == identity.data){
+            storeCache.set(store.key, store.content)
+            store_subs.get(store.key)?.forEach(sub=>sub(JSON.parse(store.content)))
+          }
+
         })
 
         c.db.store.onUpdate((c,old,news)=>{
-          if (news.owner.data == identity.data) storeCache.set(news.key, news.content)
+          if (news.owner.data == identity.data){
+              storeCache.set(news.key, news.content)
+              store_subs.get(news.key)?.forEach(sub=>sub(JSON.parse(news.content)))
+          }
         })
 
         c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
           const key = await hashFunArgs(identity, other, app, lam, arg)
-          if (ctx.event.status.tag == "Failed") {
-            lamQueue.get(key)?.reject(ctx.event.status.value)
-          }
+          if (ctx.event.status.tag == "Failed") lamQueue.get(key)?.reject(ctx.event.status.value)
           else {
-            lamQueue.get(key)?.resolve(JSON.parse(storeCache.get(key)))
+            try{
+              lamQueue.get(key)?.resolve(JSON.parse(storeCache.get(key)))
+            }catch(e){
+              console.log(storeCache.get(key))
+              console.error(e)
+              lamQueue.get(key)?.resolve(null)
+            }
           }
 
           lamQueue.delete(key)
@@ -101,6 +123,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
       })
       .onError(console.error)
+      
       .subscribe([
         `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
         `SELECT * FROM app`,
@@ -129,9 +152,11 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           return new Promise<any>(async (resolve, reject) => {
             const argstring = JSON.stringify(arg);
             const funstring = fn.toString()
-            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
 
+            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
             const lamH = await hashString(funstring)
+
+
 
             lamQueue.set(callH, {resolve, reject})
             conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
@@ -154,7 +179,13 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         }
 
         let apphandle: AppHandle<C> = {
-          call, users
+          call,
+          users,
+          subscribe: async (keyname:string, callback:(value:string)=>void) => {
+            const key = await hashStoreKey(identity, hashed.hash, keyname)
+            if (!store_subs.has(key))store_subs.set(key, [])
+            store_subs.get(key)?.push(callback)
+          }
         }
 
         return apphandle
