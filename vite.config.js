@@ -22,6 +22,7 @@ export default defineConfig(({ command, mode }) => {
       target: 'es2020',
       outDir: 'docs',
       emptyOutDir: true,
+      minify: false,
       rollupOptions: {
         input: {
           main : "index.html",

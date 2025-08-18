@@ -78,6 +78,12 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
       let right = build_expr(inner.next().unwrap())?;
       Ok(mk_binop(left, op, right))
     },
+    Rule::unop => {
+      let mut inner = pair.into_inner();
+      let op = inner.next().unwrap().as_str().to_string();
+      let expr = build_expr(inner.next().unwrap())?;
+      Ok(mk_unop(op, expr))
+    },
     Rule::index => {
       let mut inner = pair.into_inner();
       let primary = build_expr(inner.next().unwrap())?;

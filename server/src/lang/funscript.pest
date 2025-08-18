@@ -26,7 +26,7 @@ object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
 
 fun        = { params ~ "=>" ~ (block | expr) }
 
-primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" }
+primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" | unop }
 
 field = {"." ~ ident}
 index = {"[" ~ expr ~ "]"}
@@ -36,13 +36,16 @@ operand    = { access_chain | primary }
 op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" | "||" | "&&" | "??" }
 binop      = { operand ~ op ~ operand }
 
+uop        = { "!" | "-" }
+unop       = { uop ~ operand }
+
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
 
 expr       = _{ ( fun | cond | binop | access_chain | primary ) }
 
 let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
 
-expr_      = { expr ~ ";" }
+expr_      = { expr ~ ( ";" | "," ) }
 
 function_  = { "function" ~ ident ~ params ~ block }
 
@@ -54,7 +57,6 @@ return_    = { "return" ~ expr ~ ";"? }
 
 block      = { "{" ~ stmt* ~ "}"} 
 
-// If/Else statements (only inside blocks)
 if_        = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ (if_ | block))? }
 
 

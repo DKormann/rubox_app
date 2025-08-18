@@ -28,6 +28,7 @@ const msgApp : ServerApp<ChatCtx> = {
         let t = c.DB.set(false, "messages", [...c.DB.get<Msg[]> (false, "messages") ?? [], d]);
         c.DB.set(true, "messages", [...c.DB.get<Msg[]> (true, "messages") ?? [], d])
       }
+    
     }
   },
   api: {
@@ -51,6 +52,9 @@ const msgApp : ServerApp<ChatCtx> = {
   }
 }
 
+
+
+console.log("FUN",msgApp.api.getMessages.toString())
 
 
 export const chatView : PageComponent = (conn:ServerConnection) => {

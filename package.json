@@ -8,7 +8,8 @@
     "build:gh-pages": "BUILD_TARGET=gh-pages vite build --force",
     "build:local": "BUILD_TARGET=local vite build --force",
     "preview": "vite preview",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build:tsc": "tsc -p tsconfig.build.json"
   },
   "devDependencies": {
     "@clockworklabs/spacetimedb-sdk": "^1.1.0",

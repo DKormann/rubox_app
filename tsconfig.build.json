@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist-tsc",
+    "declaration": false,
+    "removeComments": false,
+    "sourceMap": true
+  },
+  "include": [
+    "src"
+  ]
+}
+
+

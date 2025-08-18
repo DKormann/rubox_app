@@ -53,12 +53,23 @@ let location  = getLocation()
 
 console.log(location)
 
+// e=>({
+//   pushMsg:t=>{
+//     let r={sender:e.self,receiver:e.other,message:t};
+//     e.DB.set(!1,"messages",[...e.DB.get(!1,"messages")??[],r]),
+//     e.DB.set(!0,"messages",[...e.DB.get(!0,"messages")??[],r])
+//   }
+// })
+
+
 
 
 const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
 const body = document.body;
 
 body.appendChild(h2("loading..."))
+
+
 
 connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
   

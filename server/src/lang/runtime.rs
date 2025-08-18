@@ -318,6 +318,15 @@ pub fn do_eval(
 
         if cast_bool(&v) { do_eval(t, env, native_fns.clone()) } else { do_eval(e, env, native_fns) }
       },
+      Expr::Unop(op, expr) => {
+        let val = do_eval(expr, env, native_fns.clone())?;
+        match op.as_str() {
+          "!" => Ok(v(Value::Boolean(!cast_bool(&val)))),
+          "-" => Ok(v(Value::Int(-i32::try_from(val.as_ref()).map_err(|e| format!("int error: {:?}", e))?))),
+          "-" => Ok(v(Value::Float(-f64::try_from(val.as_ref()).map_err(|e| format!("float error: {:?}", e))?))),
+          _ => Err("unknown operator".into()),
+        }
+      },
       Expr::Binop(left, op, right) => {
 
         // Evaluate operands
