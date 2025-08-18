@@ -53,18 +53,21 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     
       Ok(mk_fn(params, body_expr))
     }
+
+
     Rule::function => {
-      // Desugar `function name(p1, p2) { ... }` to `let name = (p1, p2) => { ... }; name`
       let mut inner = pair.into_inner();
       let name = inner.next().unwrap().as_str().to_string();
-      let params_pair = inner.next().unwrap();
+      let params_pair = inner.next().expect("params_pair not found");
       let params = build_params(params_pair);
-      let body_pair = inner.next().unwrap();
+      let body_pair = inner.next().expect("body_pair not found");
       let body_expr = build_block_as_function_body(body_pair)?;
-      let init = mk_fn(params, body_expr);
-      Ok(mk_let(name.clone(), init, Expr::Var(name)))
-    }
-    
+      let rest = inner.next().expect("rest not found");
+      let expr = build_expr(rest)?;
+      Ok(mk_let(name, mk_fn(params, body_expr), expr))
+    },
+      
+
 
     Rule::primary => build_expr(pair.into_inner().next().unwrap()),
     Rule::operand => build_expr(pair.into_inner().next().unwrap()),
@@ -81,7 +84,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     Rule::int | Rule::float | Rule::string | Rule::string2 | Rule::boolean | Rule::null | Rule::undefined => build_literal(pair),
     Rule::array => build_array(pair),
     Rule::object => build_object(pair),
-    Rule::block => build_block_as_expr(pair),
+    // Rule::block => build_block_as_expr(pair),
     Rule::cond => {
       let mut inner = pair.into_inner();
       let c = build_expr(inner.next().unwrap())?;
@@ -234,76 +237,6 @@ fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
     }
   }
   Ok(Expr::Array(elems))
-}
-
-fn build_block_as_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
-  // Desugar:
-  // {
-  //   let x = e1;
-  //   stmt;
-  //   return r;
-  // }
-  // =>
-  // let x = e1; r
-  //
-  // If no `return`, the result is the last expression statement.
-  // If neither present, result is `undefined`.
-  let mut lets: Vec<(String, Expr)> = Vec::new();
-  let mut result: Option<Expr> = None;
-  let mut saw_return = false;
-
-  for p in pair.into_inner() {
-    if saw_return {
-      // Ignore anything after the first return
-      continue;
-    }
-    match p.as_rule() {
-      Rule::let_stmt => {
-        let mut inner = p.into_inner(); // ident, expr
-        let name = inner.next().unwrap().as_str().to_string();
-        let init = build_expr(inner.next().unwrap())?;
-        lets.push((name, init));
-      }
-      Rule::function => {
-        // Treat function declaration like a let-binding: let name = (..)=>{..};
-        let mut inner = p.into_inner();
-        let name = inner.next().unwrap().as_str().to_string();
-        let params_pair = inner.next().unwrap();
-        let params = build_params(params_pair);
-        let body_pair = inner.next().unwrap();
-        let body_expr = build_block_as_function_body(body_pair)?;
-        let init = mk_fn(params, body_expr);
-        lets.push((name, init));
-      }
-      // Keep the last expression statement as fallback result (for plain blocks)
-      Rule::expr_stmt => {
-        let expr = build_expr(p.into_inner().next().unwrap())?;
-        result = Some(expr);
-      }
-      Rule::return_stmt => {
-        // Optional expression in return
-        let mut inner = p.into_inner();
-        let expr = match inner.next() {
-          Some(expr_pair) => build_expr(expr_pair)?,
-          None => Expr::Value(Box::new(Value::Undefined)),
-        };
-        result = Some(expr);
-        saw_return = true;
-      }
-      // Allow stray semicolons (no-op)
-      _ => {}
-    }
-  }
-
-  // Default to undefined if nothing produced a value
-  let mut body = result.unwrap_or_else(|| Expr::Value(Box::new(Value::Undefined)));
-
-  // Fold `let` statements outward: let a = init; body
-  for (name, init) in lets.into_iter().rev() {
-    body = mk_let(name, init, body);
-  }
-
-  Ok(body)
 }
 
 fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {

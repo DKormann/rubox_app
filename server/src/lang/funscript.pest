@@ -31,12 +31,12 @@ let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" ~ expr }
 let_stmt       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
 return_stmt    = { "return" ~ expr? ~ ";"? }
 expr_stmt      = { expr ~ ";" }
-stmt           = _{ let_stmt | return_stmt | function | expr_stmt | ";" }
+stmt           = _{ let_stmt | return_stmt | expr_stmt | ";" }
 block          = { "{" ~ stmt* ~ "}" }
 
 fun        = { params ~ "=>" ~ (block | expr) }
 
-function   = {"function" ~ ident ~ params ~ block }
+function   = { ident ~ arglist ~ block ~ ";" ~ expr }
 
 primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" }
 
@@ -50,6 +50,6 @@ binop      = { operand ~ op ~ operand }
 
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
 
-expr       = _{ ( let_ | fun | function | block | cond | binop | access_chain | primary ) }
+expr       = _{ ( let_ | fun | function | cond | binop | access_chain | primary ) }
 
 program    = { SOI ~ expr ~ EOI }
