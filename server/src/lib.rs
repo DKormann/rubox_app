@@ -170,6 +170,8 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   let finast = Expr::Call(Box::new(lamex), vec![ctx_ex, argex]);
 
 
+
+
   let res = do_eval(&finast,
     &Rc::new(EnvData{bindings: RefCell::new(HashMap::new()), parent: None,}),
     |fname: &str, args: Vec<Value>|{

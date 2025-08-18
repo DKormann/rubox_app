@@ -1,5 +1,5 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
-import { App, AppData, DbConnection, Lambda } from "./module_bindings";
+import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
 import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
 
 
@@ -70,6 +70,9 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
     let store_subs : Map <bigint, ((value:Serial)=>void)[]> = new Map()
 
 
+    let appLoader : Map<bigint, ()=>void> = new Map()
+
+
 
     DbConnection.builder()
     .withUri(url)
@@ -87,8 +90,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
         console.log("APPLIED")
 
-        console.log(Array.from(c.db.store.iter()))
-
         c.db.store.onInsert((c,store)=>{
 
           if (store.owner.data == identity.data){
@@ -96,6 +97,15 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
             store_subs.get(store.key)?.forEach(sub=>sub(JSON.parse(store.content)))
           }
 
+        })
+
+        c.db.host.onInsert((c,host:Host)=>{
+
+          if (host.host.data == identity.data){
+            console.log("HOST INSERT", host.host.toHexString())
+            appLoader.get(host.app)?.()
+          }
+          
         })
 
         c.db.store.onUpdate((c,old,news)=>{
@@ -113,8 +123,9 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
             try{
               lamQueue.get(key)?.resolve(JSON.parse(storeCache.get(key)))
             }catch(e){
-              console.log(storeCache.get(key))
               console.error(e)
+              console.log(other)
+              // console.log(storeCache.get(key))
               lamQueue.get(key)?.resolve(null)
             }
           }
@@ -135,6 +146,8 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
       const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
 
 
+
+
       const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
 
         let hashed = await hashApp({
@@ -150,6 +163,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         conn.reducers.sethost(hashed.hash, true)
 
         let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
+          console.log("CALL", target, fn, arg)
           return new Promise<any>(async (resolve, reject) => {
             const argstring = JSON.stringify(arg);
             const funstring = fn.toString()
@@ -188,7 +202,10 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           }
         }
 
-        return apphandle
+        return new Promise<AppHandle<C>>((resolve, reject)=>{
+          appLoader.set(hashed.hash, ()=>resolve(apphandle))
+        })
+
       }
 
       resolve({identity: IdString(identity), handle})

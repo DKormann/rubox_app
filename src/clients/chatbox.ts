@@ -63,6 +63,7 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   
   
   conn.handle(msgApp).then(async ({call, users, subscribe})=>{
+    console.log("handle", msgApp)
     async function getName(id:IdString){
       let cached = nametable.get(id)
       if (cached) return cached
@@ -81,6 +82,7 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
 
     function displayMsgs(){
       msgDisplay.set(div(
+
         msgs.get().filter(msg=>(msg.receiver == other.get() && msg.sender == conn.identity) || ( msg.sender == other.get() && msg.receiver == conn.identity))
         .map(msg=>p(getName(msg.sender), " : ",msg.message)),
         {style:{"max-width": "20em", "margin":"auto"}}

@@ -5,6 +5,8 @@ export {}
 
 
 import { chatView } from "./clients/chatbox"
+import { chessView } from "./clients/chess"
+
 import { button, div, h2, p } from "./html"
 import { Stored } from "./store"
 import { connectServer, ServerConnection } from "./userspace"
@@ -69,9 +71,7 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
   }[] = [
     {init: home, path: "", cache: undefined},
     {init: (server)=>chatView(server), path: "chat", cache: undefined},
-    // {init: chessView, path: "chess", cache: undefined},
-    // {init: url => Console(url, cmd => eval(cmd)), path: "console", cache: undefined},
-    // {init: AntFarm, path: "antfarm", cache: undefined}
+    {init: (server)=>chessView(server), path: "chess", cache: undefined},
 
   ]
 
@@ -87,7 +87,7 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
   function route(path: string[]){
 
 
-    let  newpath = (location.serverLocal? "local" : "") + "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/')
+    let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
     
     window.history.pushState({}, "", newpath)
