@@ -32,7 +32,7 @@ document.title = appname
 
 function getLocation():Location{
 
-  const items = window.location.pathname.split("/").filter(Boolean)
+  const items = window.location.pathname.split("/").filter(Boolean).filter(x=>x!="rubox_app")
 
   const serverLocal = items.includes("local")
   const frontendLocal = ! items.includes(appname)
