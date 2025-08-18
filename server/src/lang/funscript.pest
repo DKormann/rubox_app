@@ -24,19 +24,7 @@ arrayItem  = { expr | spread }
 array      = { "[" ~ (arrayItem ~ ("," ~ arrayItem)* ~ (",")?)? ~ "]" }
 object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
 
-/* Existing expression-level let-in form retained */
-let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" ~ expr }
-
-/* New: statements and blocks for block-bodied functions */
-let_stmt       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
-return_stmt    = { "return" ~ expr? ~ ";"? }
-expr_stmt      = { expr ~ ";" }
-stmt           = _{ let_stmt | return_stmt | expr_stmt | ";" }
-block          = { "{" ~ stmt* ~ "}" }
-
 fun        = { params ~ "=>" ~ (block | expr) }
-
-function   = { ident ~ arglist ~ block ~ ";" ~ expr }
 
 primary    = _{ literal | ident | array | object | "(" ~ expr ~ ")" }
 
@@ -50,6 +38,27 @@ binop      = { operand ~ op ~ operand }
 
 cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
 
-expr       = _{ ( let_ | fun | function | cond | binop | access_chain | primary ) }
+expr       = _{ ( fun | cond | binop | access_chain | primary ) }
+
+let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
+
+expr_      = { expr ~ ";" }
+
+function_  = { "function" ~ ident ~ params ~ block }
+
+
+
+stmt       = { return_ | let_ | expr_ | function_ | if_ }
+
+return_    = { "return" ~ expr ~ ";"? }
+
+block      = { "{" ~ stmt* ~ "}"} 
+
+// If/Else statements (only inside blocks)
+if_        = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ (if_ | block))? }
+
+
+
+
 
 program    = { SOI ~ expr ~ EOI }

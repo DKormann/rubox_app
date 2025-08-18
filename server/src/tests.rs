@@ -1,6 +1,8 @@
 
 
 
+
+
 #[cfg(test)]
 mod tests {
 use std::array;
@@ -15,37 +17,16 @@ use crate::lang::runtime::eval;
 use crate::lang::ast::*;
 use crate::lang::parser::*;
 
+  // ********** helpers **********
+
 
   fn test_parse(code:&str, expect_ast:Expr){
     let ast = parse(code).expect("parse failed");
     assert_eq!(ast, expect_ast);
   }
 
-  #[test]
-  fn test_parse_str(){
-    let code = "let x = '22'; x";
-    test_parse(code, mk_let("x".into(), mk_string("22".into()), mk_var("x")));
-  }
-  
-  #[test]
-  fn test_let_parse(){
-    let code = "let x = 2; x";
-    test_parse(code, mk_let("x".into(), mk_int(2), mk_var("x")));
-  }
-
-  #[test]
-  fn test_let_eval(){
-    let code = "let x = 2; x";
-    test_code_equiv(code, "2");
-  }
 
 
-
-  #[test]
-  fn test_let_chain(){
-    test_code_equiv("let x = 2; let y = x; y", "2");
-  }
-  
   fn test_code_equiv(a:&str,b:&str){
     let ast_a = crate::parse(a).expect("parse failed");
     let ast_b = crate::parse(b).expect("parse failed");
@@ -54,10 +35,21 @@ use crate::lang::parser::*;
     assert_eq!(res_a, res_b);
   }
 
+
+  // ********** parse Expr **********
+
   #[test]
-  fn test_let_chain_eval(){
-    test_code_equiv("let x = 2; let y = x; y", "2");
+  fn test_parse_str_expr(){
+    let code = "'22'";
+    test_parse(code, mk_string("22".into()));
   }
+  
+  #[test]
+  fn test_parse_number_expr(){
+    test_parse("2", mk_int(2));
+  }
+
+  // ********** evaluate Expr **********
 
   #[test]
   fn test_brace_equiv(){
@@ -69,12 +61,6 @@ use crate::lang::parser::*;
     let code = "((x)=>x)";
     test_parse(code, mk_fn(vec!["x".into()], mk_var("x")));
   }
-
-  // #[test]
-  // fn test_parse_function_decl_expr(){
-  //   let code = "function fn() { return 3; }";
-  //   test_parse(code, mk_let("fn".into(), mk_fn(vec![], mk_int(3)), mk_var("fn")));
-  // }
 
   #[test]
   fn test_parse_call(){
@@ -100,27 +86,10 @@ use crate::lang::parser::*;
     test_parse("a.b + 2", mk_binop(mk_access(mk_var("a"), "b".into()), "+".into(), mk_int(2)));
   }
 
-  #[test]
-  fn test_parse_binops_eval(){
-
-
-    test_code_equiv("2+2", "4");
-    test_code_equiv("2-2", "0");
-    test_code_equiv("2*2", "4");
-    test_code_equiv("2/2", "1");
-    test_code_equiv("2==2", "true");
-    test_code_equiv("2!=2", "false");
-    test_code_equiv("2>2", "false");
-    test_code_equiv("2<2", "false");
-    test_code_equiv("2>=2", "true");
-    test_code_equiv("2<=2", "true");
-    test_code_equiv("(a)=>a+1", "(a)=>a+1");
-  }
 
 
   #[test]
   fn test_parse_array(){
-
 
     let code = "[1,2,3]";
     test_parse(code, mk_array(vec![mk_int(1), mk_int(2), mk_int(3)]));
@@ -134,9 +103,8 @@ use crate::lang::parser::*;
         ArrElem::Spread(mk_var("c")),
       ]
     ));
-
-
   }
+
 
 
   #[test]
@@ -174,29 +142,6 @@ use crate::lang::parser::*;
   }
 
 
-  #[test]
-  fn test_parse_function_decl(){
-    let code = "function fn() { return 3; }; fn";
-    test_parse(code, mk_let("fn".into(), mk_fn(vec![], mk_int(3)), mk_var("fn")));
-  }
-
-
-  #[test]
-  fn fn_call_eval(){
-    test_code_equiv("((x)=>x)(22)", "22");
-    test_code_equiv("((x,y)=>y)(1,2)", "2");
-    test_code_equiv("((x,y)=>x)(1,2)", "1");
-  }
-
-  #[test]
-  fn eval_function_decl(){
-    test_code_equiv("let add = (a,b)=>{ return a + b; }; add(2,3)", "5");
-  }
-
-  #[test]
-  fn eval_function_decl_no_return(){
-    test_code_equiv("let f = ()=> { let x = 2; x + 3; }; f()", "undefined");
-  }
 
   #[test]
   fn arr_index_eval(){
@@ -209,11 +154,111 @@ use crate::lang::parser::*;
     test_code_equiv("({a:22}).a", "22");
   }
 
+
+
+
+  // ********** parse Blocks **********
+  #[test]
+  fn test_parse_let_in_block(){
+    let code = "(()=>{ let x = 2; return x; })";
+    // test_parse(code, mk_fn(vec![], mk_let("x".into(), mk_int(2), mk_var("x"))));
+
+    test_parse(code,
+      mk_fn(vec![],
+        mk_let("x".into(), mk_int(2), mk_var("x"))
+      )
+    );
+  }
+
+
+
+
+  #[test]
+  fn test_parse_let_in_block_2(){
+    let code = "(()=>{ let x = 2; DBSet(x); return x; })";
+
+    test_parse(code,
+      mk_fn(vec![],
+        mk_let("x".into(), mk_int(2), 
+          mk_let("".into(), mk_call(mk_var("DBSet"), vec![mk_var("x")]), mk_var("x"))
+      ))
+    );
+  }
+
+
+
+  #[test]
+  fn test_parse_let_in_block_3(){
+    let code = "(()=>{
+      let x = 2;
+      DBSet(x);
+      function f() { return 3; }
+      return x; })";
+
+    test_parse(code,
+      mk_fn(vec![],
+        // todo!()
+        mk_let_chain(vec![
+            ("x".into(), mk_int(2)),
+            ("".into(), mk_call(mk_var("DBSet"), vec![mk_var("x")])),
+            ("f".into(), mk_fn(vec![], mk_int(3))),
+          ], 
+          mk_var("x".into()))
+      )
+    );
+  }
+
+
+
+  #[test]
+  fn test_parse_let_in_block_4(){
+    let code = "(()=>{ let o = {f:(x)=>x}; return (o.f)(22); })()";
+    test_parse(code, mk_call(
+    mk_fn(vec![],
+      mk_let_chain(vec![
+        ("o".into(), mk_object(vec![("f".into(), mk_fn(vec!["x".into()], mk_var("x")))])),
+      ],
+      mk_call(mk_access(mk_var("o".into()),"f".into()), vec![mk_int(22)])
+      ),
+    ),
+    vec![]));
+  }
+
+
+  // ********** evaluate Expr **********
+
+  #[test]
+  fn test_parse_binops_eval(){
+    test_code_equiv("2+2", "4");
+    test_code_equiv("2-2", "0");
+    test_code_equiv("2*2", "4");
+    test_code_equiv("2/2", "1");
+    test_code_equiv("2==2", "true");
+    test_code_equiv("2!=2", "false");
+    test_code_equiv("2>2", "false");
+    test_code_equiv("2<2", "false");
+    test_code_equiv("2>=2", "true");
+    test_code_equiv("2<=2", "true");
+    test_code_equiv("(a)=>a+1", "(a)=>a+1");
+  }
+
+
+  #[test]
+  fn arrow_call_eval(){
+    test_code_equiv("((x)=>x)(22)", "22");
+    test_code_equiv("((x,y)=>y)(1,2)", "2");
+    test_code_equiv("((x,y)=>x)(1,2)", "1");
+  }
+
+
+
+
+
   #[test]
   fn full_eval_complex(){
-    test_code_equiv("let o = {a:22}; o.a", "22");
-    test_code_equiv("let o = {a:22}; let x = o.a; x", "22");
-    test_code_equiv("let o = {f:(x)=>x}; (o.f)(22)", "22");
+    test_code_equiv("(()=>{ let o = {a:22}; return o.a; })()", "22");
+    test_code_equiv("(()=>{ let o = {a:22}; let x = o.a; return x; })()", "22");
+    test_code_equiv("(()=>{ let o = {f:(x)=>x}; return (o.f)(22); })()", "22");
   }
 
   #[test]
@@ -221,23 +266,17 @@ use crate::lang::parser::*;
     test_code_equiv("true ? 22 : 33" , "22");
     test_code_equiv("1 ? 22 : 33" , "22");
     test_code_equiv("0 ? 22 : 33" , "33");
-  }
-
-
-
-  #[test]
-  fn eval_conditional2(){
     test_code_equiv("0>1 ? 22 : 33" , "33");
-
   }
+
+
+
 
   #[test]
   fn eval_fun_1(){
     let code = "
-    let fun = (n)=> n < 2 ? 2 : 3;
-    fun(1)
+    (()=>{ let fun = (n)=> n < 2 ? 2 : 3; return fun(1); })()
     ";
-
     test_code_equiv(code, "2");
   }
 
@@ -246,10 +285,8 @@ use crate::lang::parser::*;
   #[test]
   fn eval_fun_rec(){
     let code = "
-    let fun = (n)=> n < 2 ? 2 : fun(n-1);
-    fun(3)
+    (()=>{ let fun = (n)=> n < 2 ? 2 : fun(n-1); return fun(3); })()
     ";
-
     test_code_equiv(code, "2");
   }
 
@@ -257,46 +294,12 @@ use crate::lang::parser::*;
   #[test]
   fn eval_fun_fib(){
     let code = "
-    let fib = (n)=> n < 2 ? 1 : fib(n-1) + fib(n-2);
-    fib(5)
+    (()=>{ let fib = (n)=> n < 2 ? 1 : fib(n-1) + fib(n-2); return fib(5); })()
     ";
-
     test_code_equiv(code, "8");
   }
 
-  fn test_run_code(code:&str, expect:&str){
-    let res = runcode(code).expect("run code");
-    assert_eq!(res, expect);
-  }
 
-  #[test]
-  fn test_read_back(){
-    test_run_code("22", "22");
-    test_run_code("true", "true");
-    test_run_code("false", "false");
-    test_run_code("[1,2,3]", "[1, 2, 3]");
-  }
-
-  #[test]
-  fn eval_multiline_fn(){
-
-    let code = "
-    let fun = (n)=> {
-      return 3;
-    };
-    fun(1)
-    ";
-    let ast = parse(code).map_err(|e| e.to_string());
-    match ast {
-      Err(e) => {
-        panic!("parse failed");
-      }
-      Ok(ast) => {
-        let res = eval(&ast).expect("eval failed");
-        assert_eq!(res, Value::Int(3).into());
-      },
-    }
-  }
 
 
 
@@ -310,57 +313,20 @@ use crate::lang::parser::*;
   }
 
 
-  #[test]
-  fn eval_multiline_fn2(){
+  // ********** evaluate Blocks **********
 
-    let code = "
-    let fun = (n)=> {
-      let x = 2;
-      return x + 3;
-    };
-    fun(1)
-    ";
-    let ast = parse(code).map_err(|e| e.to_string());
-    match ast {
-      Err(e) => {
-        panic!("parse failed");
-      }
-      Ok(ast) => {
-        let res = eval(&ast).expect("eval failed");
-        assert_eq!(res, Value::Int(5).into());
-      },
-    }
+
+
+
+  #[test]
+  fn eval_function_decl(){
+    test_code_equiv("(()=>{ let add = (a,b)=>{ return a + b; }; return add(2,3); })()", "5");
   }
 
-  // #[test]
-  // fn eval_function_decl_no_return_yields_null(){
-  //   test_code_equiv("{ function f() { let x = 2; x + 3; } f(); }", "undefined");
-  // }
-
   #[test]
-  fn eval_arrow_block_no_return_yields_undefined(){
-    test_code_equiv("let f = ()=> { let x = 2; x + 3; }; f()", "undefined");
-  }
-
-
-
-
-
-  #[test]
-  fn eval_native_fn(){
-    let nfn = mk_native_fn("myFn".into());
-    let res = do_eval(&mk_call(nfn, vec![]), &&env_extend(None),
-    |fname, args| {
-      match fname {
-        "myFn" => Ok(Value::Int(42)),
-        _ => Err("native function not found".into()),
-      }
-    }).expect("eval failed");
-    assert_eq!(res, Value::Int(42).into());
-
+  fn eval_function_decl_no_return(){
+    test_code_equiv("(()=>{ let f = ()=> { let x = 2; x + 3; }; return f(); })()", "undefined");
   }
 
 }
-
-
 

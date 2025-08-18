@@ -290,3 +290,11 @@ pub fn mk_object(elems: Vec<(String, Expr)>) -> Expr {
 pub fn mk_native_fn(fname: String) -> Expr {
   Expr::Value(Box::new(Value::NativeFn(fname)))
 }
+
+pub fn mk_let_chain(lets: Vec<(String, Expr)>, result: Expr) -> Expr {
+  let mut body = result;
+  for (name, value) in lets.into_iter().rev() {
+    body = mk_let(name, value, body);
+  }
+  body
+}

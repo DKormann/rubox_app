@@ -1,6 +1,7 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
 import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
+import { Writable } from "./store";
 
 
 
@@ -70,7 +71,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
     let store_subs : Map <bigint, ((value:Serial)=>void)[]> = new Map()
 
 
-    let appLoader : Map<bigint, ()=>void> = new Map()
+
 
 
 
@@ -83,6 +84,8 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
       tokenStore.set(token)
 
       const storeCache = new Map<bigint, string>();
+
+      const hostCache = new Writable<{[key:string]:true}>({})
 
 
       conn.subscriptionBuilder()
@@ -102,8 +105,10 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         c.db.host.onInsert((c,host:Host)=>{
 
           if (host.host.data == identity.data){
-            console.log("HOST INSERT", host.host.toHexString())
-            appLoader.get(host.app)?.()
+            hostCache.update(h=>{
+              h[host.app.toString()] = true
+              return h
+            },true)
           }
           
         })
@@ -121,11 +126,11 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           if (ctx.event.status.tag == "Failed") lamQueue.get(key)?.reject(ctx.event.status.value)
           else {
             try{
-              lamQueue.get(key)?.resolve(JSON.parse(storeCache.get(key)))
+              let val = storeCache.get(key)
+              if (val == "undefined") lamQueue.get(key)?.resolve(undefined)
+              else lamQueue.get(key)?.resolve(JSON.parse(val))
+          
             }catch(e){
-              console.error(e)
-              console.log(other)
-              // console.log(storeCache.get(key))
               lamQueue.get(key)?.resolve(null)
             }
           }
@@ -143,9 +148,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
       ])
 
-      const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
-
-
 
 
       const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
@@ -160,18 +162,15 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           functions: Object.values(box.api).map(fn=>fn.toString())
         })
 
-        conn.reducers.sethost(hashed.hash, true)
 
         let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
-          console.log("CALL", target, fn, arg)
+          // console.log("CALL", target, fn, arg)
           return new Promise<any>(async (resolve, reject) => {
             const argstring = JSON.stringify(arg);
             const funstring = fn.toString()
 
             const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
             const lamH = await hashString(funstring)
-
-
 
             lamQueue.set(callH, {resolve, reject})
             conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
@@ -203,10 +202,19 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         }
 
         return new Promise<AppHandle<C>>((resolve, reject)=>{
-          appLoader.set(hashed.hash, ()=>resolve(apphandle))
+          let hash = hashed.hash.toString()
+          hostCache.subscribe(h=>{if (h[hash])resolve(apphandle)})
+          conn.reducers.sethost(hashed.hash, true)
+
         })
 
       }
+
+      const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
+
+
+
+
 
       resolve({identity: IdString(identity), handle})
    

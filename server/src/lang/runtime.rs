@@ -8,6 +8,7 @@
 
 
 use im::HashMap;
+use std::mem;
 use std::rc::Rc;
 use std::cell::RefCell;
 
