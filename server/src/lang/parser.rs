@@ -50,6 +50,13 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
 
     Rule::primary => build_expr(pair.into_inner().next().unwrap()),
     Rule::operand => build_expr(pair.into_inner().next().unwrap()),
+    Rule::multiplicative => build_left_associative_chain(pair),
+    Rule::additive => build_left_associative_chain(pair),
+    Rule::relational => build_left_associative_chain(pair),
+    Rule::equality => build_left_associative_chain(pair),
+    Rule::nullish => build_left_associative_chain(pair),
+    Rule::logical_and => build_left_associative_chain(pair),
+    Rule::logical_or => build_left_associative_chain(pair),
     Rule::ident => {
       let res = match pair.as_str(){
         // "DB"=>Expr::Value(Box::new(Value::Builtin(Builtin::DB))),
@@ -70,13 +77,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
       let t = build_expr(inner.next().unwrap())?;
       let e = build_expr(inner.next().unwrap())?;
       Ok(mk_conditional(c,t,e))
-    },
-    Rule::binop => {
-      let mut inner = pair.into_inner();
-      let left = build_expr(inner.next().unwrap())?;
-      let op = inner.next().unwrap().as_str().to_string();
-      let right = build_expr(inner.next().unwrap())?;
-      Ok(mk_binop(left, op, right))
     },
     Rule::unop => {
       let mut inner = pair.into_inner();
@@ -118,6 +118,18 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
 
     _ => unreachable!("unhandled rule: {:?}", pair.as_rule()),
   }
+}
+
+fn build_left_associative_chain(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
+  let mut inner = pair.into_inner();
+  // first expression node
+  let mut acc = build_expr(inner.next().unwrap())?;
+  while let (Some(op_pair), Some(rhs_pair)) = (inner.next(), inner.next()) {
+    let op_text = op_pair.as_str().to_string();
+    let rhs = build_expr(rhs_pair)?;
+    acc = mk_binop(acc, op_text, rhs);
+  }
+  Ok(acc)
 }
 
 fn build_params(pair: pest::iterators::Pair<Rule>) -> Vec<String> {

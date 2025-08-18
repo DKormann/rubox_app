@@ -33,15 +33,33 @@ index = {"[" ~ expr ~ "]"}
 access_chain = { primary ~ (field | index | arglist)+ }
 
 operand    = { access_chain | primary }
-op         = { "==" | "!=" | ">=" | "<=" | "+" | "-" | "*" | "/" | ">" | "<" | "||" | "&&" | "??" }
-binop      = { operand ~ op ~ operand }
+
+// Operator precedence (lowest at bottom):
+// primary/unary -> multiplicative -> additive -> relational -> equality -> nullish -> logical_and -> logical_or -> conditional
+
+mul_op           = { "*" | "/" | "%" }
+add_op           = { "+" | "-" }
+rel_op           = { ">=" | "<=" | ">" | "<" }
+eq_op            = { "==" | "!=" }
+nullish_op       = { "??" }
+and_op           = { "&&" }
+or_op            = { "||" }
+
+multiplicative   = { operand ~ ( mul_op     ~ operand       )* }
+additive         = { multiplicative ~ ( add_op ~ multiplicative )* }
+relational       = { additive ~ ( rel_op ~ additive )* }
+equality         = { relational ~ ( eq_op ~ relational )* }
+nullish          = { equality ~ ( nullish_op ~ equality )* }
+logical_and      = { nullish ~ ( and_op ~ nullish )* }
+logical_or       = { logical_and ~ ( or_op ~ logical_and )* }
 
 uop        = { "!" | "-" }
 unop       = { uop ~ operand }
 
-cond       = { (binop | operand) ~ "?" ~ expr ~ ":" ~ expr }
+// Ternary condition uses the highest-precedence non-conditional expression
+cond       = { logical_or ~ "?" ~ expr ~ ":" ~ expr }
 
-expr       = _{ ( fun | cond | binop | access_chain | primary ) }
+expr       = _{ ( fun | cond | logical_or ) }
 
 let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
 

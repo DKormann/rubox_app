@@ -80,10 +80,16 @@ use crate::lang::parser::*;
     test_parse("2<2", mk_binop(mk_int(2), "<".into(), mk_int(2)));
     test_parse("2>=2", mk_binop(mk_int(2), ">=".into(), mk_int(2)));
     test_parse("2<=2", mk_binop(mk_int(2), "<=".into(), mk_int(2)));
+    test_parse("2%2", mk_binop(mk_int(2), "%".into(), mk_int(2)));
     test_parse("(a)=>a+1", mk_fn(vec!["a".into()], mk_binop(mk_var("a"), "+".into(), mk_int(1))));
-
     test_parse("a(b) + 2", mk_binop(mk_call(mk_var("a"), vec![mk_var("b")]), "+".into(), mk_int(2)));
     test_parse("a.b + 2", mk_binop(mk_access(mk_var("a"), "b".into()), "+".into(), mk_int(2)));
+    test_parse("a.b(c) + 2", mk_binop(mk_call(mk_access(mk_var("a"), "b".into()), vec![mk_var("c")]), "+".into(), mk_int(2)));
+
+
+    test_parse("a * b + c", mk_binop(mk_binop(mk_var("a"), "*".into(), mk_var("b")), "+".into(), mk_var("c")));
+    test_parse("a + b * c", mk_binop(mk_var("a"), "+".into(), mk_binop(mk_var("b"), "*".into(), mk_var("c"))));
+
   }
 
 
@@ -259,6 +265,7 @@ use crate::lang::parser::*;
     test_code_equiv("(()=>{ let o = {a:22}; return o.a; })()", "22");
     test_code_equiv("(()=>{ let o = {a:22}; let x = o.a; return x; })()", "22");
     test_code_equiv("(()=>{ let o = {f:(x)=>x}; return (o.f)(22); })()", "22");
+
   }
 
   #[test]

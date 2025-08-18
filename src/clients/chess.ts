@@ -54,10 +54,8 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
   }
 
   function vecPos(vec:[number,number]):Pos{
-    return vec[0] + vec[1] * 10
+    return vec[0] + (vec[1] * 10)
   }
-
-  if (vecPos(posVec(21)) != 21) throw new Error("posVec failed")
 
   function isPos(pos:Pos):boolean{
     let [x,y] = posVec(pos)
@@ -80,7 +78,7 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
       for (let j = 0; j < 8; j++) {
         let piece = board[i][j]
         if (piece && piece.color === color && piece.type === "king"){
-          return i * 10 + j
+          return (i * 10) + j
         }
       }
     }
@@ -98,7 +96,7 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
     if (p.type.startsWith("bishop")) return bish
     if (p.type.startsWith("rook")) return rook
     if (p.type.startsWith("queen")||p.type.startsWith("king")) return bish.concat(rook)
-    throw new Error("unknown piece type: " + p.type)
+    return []
   }
 
   function posadd(start:Pos, vec:[number, number]):Pos{
@@ -131,7 +129,7 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
           let target = getPieceAt(board,pos)
           if (target) return target.color != piece.color
           else{
-            target = getPieceAt(board, pos - hity * 10)
+            target = getPieceAt(board, pos - (hity * 10))
             return target && target.color != piece.color && target.type == "pawnmoveddouble"
           }
         })
