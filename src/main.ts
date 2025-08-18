@@ -27,15 +27,17 @@ type Location= {
 } 
 
 
-const appname = "LamBox"
+const appname = "rubox_app"
+
 document.title = appname
 
 function getLocation():Location{
 
-  const items = window.location.pathname.split("/").filter(Boolean).filter(x=>x!="rubox_app")
-
+  const items = window.location.pathname.split("/").filter(Boolean)
+  
   const serverLocal = items.includes("local")
   const frontendLocal = ! items.includes(appname)
+
     
   return {
     serverLocal,
