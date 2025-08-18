@@ -6,12 +6,8 @@ import { Stored, Writable } from "../store";
 
 
 type msgCtx = {
-
   pushMsg: (msg:string)=>void
 }
-
-
-
 
 type Msg = {
   sender:IdString,
@@ -41,7 +37,6 @@ const msgBox : Box<msgCtx> = {
     },
 
     getname:(ctx,arge)=>{
-
       return ctx.DB.get(false, "name")
     },
 
@@ -78,23 +73,31 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
       return writable
     }
 
-    function displayMsgs(msgs:Msg[]){
+
+    let msgs = new Writable<Msg[]>([])
+    let msgDisplay = new Writable<HTMLElement>(div());
+    let other = new Stored<IdString>("other", conn.identity)
+
+
+    function displayMsgs(){
       msgDisplay.set(div(
-        msgs.map(msg=>p(getName(msg.sender) , "->", getName(msg.receiver)," : ",msg.message)),
+        msgs.get().filter(msg=>(msg.receiver == other.get() && msg.sender == conn.identity) || ( msg.sender == other.get() && msg.receiver == conn.identity))
+        .map(msg=>p(getName(msg.sender), " : ",msg.message)),
         {style:{"max-width": "20em", "margin":"auto"}}
       ))
     }
 
-    call(conn.identity, msgBox.api.getMessages).then(displayMsgs)
 
-    subscribe("messages", (c:Msg[])=>displayMsgs(c))
-
-    let other = new Stored<IdString>("other", conn.identity)
+    call(conn.identity, msgBox.api.getMessages).then(m=>msgs.set(m??[]))
+    msgs.subscribe(e=>displayMsgs())
+    other.subscribeLater(no=>displayMsgs())
+    subscribe("messages", (c:Msg[])=>{
+      msgs.set(c ?? [])}
+    )
 
 
     let myname = input();
     await getName(conn.identity).then(name=>name.subscribe(n=>myname.value = n))
-    let msgDisplay = new Writable<HTMLElement>(div());
 
     let msginput = input()
     let send = button("send")

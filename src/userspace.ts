@@ -99,6 +99,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         })
 
         c.db.store.onUpdate((c,old,news)=>{
+          console.log("UPDATE", old, news)
           if (news.owner.data == identity.data){
               storeCache.set(news.key, news.content)
               store_subs.get(news.key)?.forEach(sub=>sub(JSON.parse(news.content)))

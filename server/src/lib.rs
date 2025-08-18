@@ -182,7 +182,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
         log::info!("setting {}, {}, {}", owner, app.id, &key);
         let insres = ctx.db.store().try_insert(Store{key, owner:ctx.sender, content:content.clone()});
         if insres.is_err(){
-          ctx.db.store().key().update(Store{key, owner:ctx.sender, content:content.clone()});
+          ctx.db.store().key().update(Store{key, owner, content:content.clone()});
         };
         Ok(Value::Null)
       },
