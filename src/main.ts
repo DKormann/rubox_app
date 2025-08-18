@@ -14,37 +14,38 @@ import { connectServer, ServerConnection } from "./userspace"
 export type PageComponent = (server:ServerConnection) => HTMLElement
 
 
-connectServer("ws://localhost:3000", "rubox", new Stored<string>("rubox-token", "")).then((server:ServerConnection)=>{
-  
 
-  const appname = "LamBox"
-  document.title = appname
+type Location= {
+  serverLocal: boolean,
+  frontendLocal: boolean,
+  path: string[]
+} 
 
-  type Location= {
-    serverLocal: boolean,
-    frontendLocal: boolean,
-    path: string[]
-  } 
 
-  function getLocation():Location{
+const appname = "LamBox"
+document.title = appname
 
-    const items = window.location.pathname.split("/").filter(Boolean)
+function getLocation():Location{
 
-    const serverLocal = items.includes("local")
-    const frontendLocal = ! items.includes(appname)
-      
-    return {
-      serverLocal,
-      frontendLocal,
-      path: items.filter(x=>x!='local' && x!= appname)
-    }
+  const items = window.location.pathname.split("/").filter(Boolean)
+
+  const serverLocal = items.includes("local")
+  const frontendLocal = ! items.includes(appname)
+    
+  return {
+    serverLocal,
+    frontendLocal,
+    path: items.filter(x=>x!='local' && x!= appname)
   }
+}
+
+let location  = getLocation()
 
 
-  let location  = getLocation()
+const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
 
-  const serverurl = location.serverLocal ? "http://localhost:8080" : "https://lambox.chickenkiller.com/"
-
+connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
+  
 
   const body = document.body;
 

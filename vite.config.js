@@ -7,7 +7,7 @@ export default defineConfig(({ command, mode }) => {
 
   // Determine base path
   const base = command === 'build' && env.BUILD_TARGET === 'gh-pages'
-    ? '/spacetime_vite_template/'
+    ? '/rubox/'
     : '/';
 
   return {

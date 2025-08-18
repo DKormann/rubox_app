@@ -175,8 +175,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           .onError(reject)
           .subscribe([
             `SELECT * FROM host WHERE app = '${hashed.hash}'`,
-          ])
-          })
+          ])})
         }
 
         let apphandle: AppHandle<C> = {
