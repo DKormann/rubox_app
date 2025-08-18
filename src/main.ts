@@ -49,12 +49,21 @@ function getLocation():Location{
 let location  = getLocation()
 
 
+
+
+console.log(location)
+
+
+
 const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
+const body = document.body;
+
+body.appendChild(h2("loading..."))
 
 connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
   
 
-  const body = document.body;
+
 
   const home = () => div(
     h2("home"),
@@ -91,7 +100,6 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
 
   function route(path: string[]){
 
-    console.log(location)
 
 
     let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
