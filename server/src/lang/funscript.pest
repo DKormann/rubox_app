@@ -22,7 +22,7 @@ spread     = { "..." ~ expr }
 arrayItem  = { expr | spread }
 
 array      = { "[" ~ (arrayItem ~ ("," ~ arrayItem)* ~ (",")?)? ~ "]" }
-object     = { "{" ~ (prop ~ ("," ~ prop)* ~ (",")?)? ~ "}" }
+object     = { "{" ~ ((prop | spread) ~ ("," ~ (prop|spread))*  )? ~ (",")? ~ "}" }
 
 fun        = { params ~ "=>" ~ (block | expr) }
 
@@ -33,9 +33,6 @@ index = {"[" ~ expr ~ "]"}
 access_chain = { primary ~ (field | index | arglist)+ }
 
 operand    = { access_chain | primary }
-
-// Operator precedence (lowest at bottom):
-// primary/unary -> multiplicative -> additive -> relational -> equality -> nullish -> logical_and -> logical_or -> conditional
 
 mul_op           = { "*" | "/" | "%" }
 add_op           = { "+" | "-" }
@@ -56,12 +53,21 @@ logical_or       = { logical_and ~ ( or_op ~ logical_and )* }
 uop        = { "!" | "-" }
 unop       = { uop ~ operand }
 
-// Ternary condition uses the highest-precedence non-conditional expression
 cond       = { logical_or ~ "?" ~ expr ~ ":" ~ expr }
 
 expr       = _{ ( fun | cond | logical_or ) }
 
-let_       = { "let" ~ ident ~ "=" ~ expr ~ ";" }
+// Patterns for destructuring in let bindings
+pattern_ident   = { ident }
+rest_pattern    = { "..." ~ ident }
+array_pattern   = { "[" ~ (pattern_ident ~ ("," ~ pattern_ident)*)? ~ ("," ~ rest_pattern)? ~ (",")? ~ "]" }
+object_bind     = { (ident ~ ":" ~ ident) | ident }
+object_pattern  = { "{" ~ (object_bind ~ ("," ~ object_bind)* ~ (",")?)? ~ "}" }
+pattern         = _{ array_pattern | object_pattern | pattern_ident }
+
+let_       = { "let" ~ pattern ~ "=" ~ expr ~ ";" }
+
+
 
 expr_      = { expr ~ ( ";" | "," ) }
 
@@ -75,7 +81,8 @@ return_    = { "return" ~ expr ~ ";"? }
 
 block      = { "{" ~ stmt* ~ "}"} 
 
-if_        = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ (if_ | block))? }
+// Allow single-line if branches using expr_ (which consumes the trailing semicolon)
+if_        = { "if" ~ "(" ~ expr ~ ")" ~ (expr_ | block) ~ ("else" ~ (if_ | (expr_ | block)))? }
 
 
 

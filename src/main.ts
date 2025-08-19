@@ -10,7 +10,7 @@ import { chessView } from "./clients/chess"
 import { button, div, h2, p } from "./html"
 import { Stored } from "./store"
 import { connectServer, ServerConnection } from "./userspace"
-
+import {chessView as chessView2} from "./clients/chess2"
 
 
 export type PageComponent = (server:ServerConnection) => HTMLElement
@@ -74,8 +74,6 @@ body.appendChild(h2("loading..."))
 connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
   
 
-
-
   const home = () => div(
     h2("home"),
     p("welcome to the rubox"),
@@ -97,6 +95,7 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
     {init: home, path: "", cache: undefined},
     {init: (server)=>chatView(server), path: "chat", cache: undefined},
     {init: (server)=>chessView(server), path: "chess", cache: undefined},
+    {init: (server)=>chessView2(server), path: "chess2", cache: undefined},
 
   ]
 
@@ -110,8 +109,6 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
 
 
   function route(path: string[]){
-
-
 
     let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')

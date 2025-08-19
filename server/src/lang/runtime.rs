@@ -18,6 +18,75 @@ use crate::Store;
 fn v(val: Value) -> VRef {
 Rc::new(val)
 }
+fn collect_pattern_idents(pattern: &Expr, out: &mut Vec<String>) {
+  match pattern {
+    Expr::Var(name) => out.push(name.clone()),
+    Expr::Array(items) => {
+      for item in items {
+        match item {
+          ArrElem::Expr(Expr::Var(name)) => out.push(name.clone()),
+          ArrElem::Spread(Expr::Var(name)) => out.push(name.clone()),
+          _ => {}
+        }
+      }
+    }
+    Expr::Object(props) => {
+      for prop in props {
+        if let ObjElem::Expr((_key, Expr::Var(name))) = prop {
+          out.push(name.clone());
+        }
+      }
+    }
+    _ => {}
+  }
+}
+
+fn bind_pattern(pattern: &Expr, value: &VRef, env: &EnvRef) -> Result<(), String> {
+  match (pattern, value.as_ref()) {
+    (Expr::Var(name), v) => {
+      env.bindings.borrow_mut().insert(name.clone(), Rc::new(v.clone()));
+      Ok(())
+    }
+    (Expr::Array(items), Value::Array(vals)) => {
+      let mut index: usize = 0;
+      let total = items.len();
+      // If there is a spread, it must be the last element we produced in the pattern
+      for (pos, item) in items.iter().enumerate() {
+        match item {
+          ArrElem::Expr(Expr::Var(name)) => {
+            if index >= vals.len() { env.bindings.borrow_mut().insert(name.clone(), Rc::new(Value::Undefined)); }
+            else { env.bindings.borrow_mut().insert(name.clone(), vals[index].clone()); }
+            index += 1;
+          }
+          ArrElem::Spread(Expr::Var(name)) => {
+            // bind the rest of the elements
+            let rest: Vec<Rc<Value>> = if index < vals.len() { vals[index..].to_vec() } else { Vec::new() };
+            env.bindings.borrow_mut().insert(name.clone(), Rc::new(Value::Array(rest)));
+            index = vals.len();
+            // spread must be last; ignore anything after
+            if pos + 1 != total { /* allow but ignore to keep simple */ }
+          }
+          _ => return Err("array destructuring must bind to identifiers".into()),
+        }
+      }
+      Ok(())
+    }
+    (Expr::Object(props), Value::Object(obj)) => {
+      for prop in props {
+        if let ObjElem::Expr((key, Expr::Var(name))) = prop {
+          let val = obj.get(key).cloned().unwrap_or_else(|| Rc::new(Value::Undefined));
+          env.bindings.borrow_mut().insert(name.clone(), val);
+        } else {
+          return Err("object destructuring must bind to identifiers".into());
+        }
+      }
+      Ok(())
+    }
+    (Expr::Array(_), _) => Err("cannot destructure non-array as array".into()),
+    (Expr::Object(_), _) => Err("cannot destructure non-object as object".into()),
+    _ => Err("invalid destructuring pattern".into()),
+  }
+}
 
 
 fn cmp_numbers(a: f64, b: f64, op: &str) -> Result<VRef, String> {
@@ -153,19 +222,25 @@ pub fn do_eval(
           }
       }
 
-      Expr::Let(name, val_expr, body) => {
+      Expr::Let(bindr, val_expr, body) => {
           // Make a new environment frame we can mutate in place
           let final_env = Rc::new(EnvData {
               bindings: RefCell::new(HashMap::new()),
               parent: Some(env.clone()),
           });
 
-          // Evaluate RHS in an environment that already has the binding name available
-          // so recursive functions can reference themselves.
-          // Insert a temporary Undefined to allow self-reference during RHS evaluation.
-          final_env.bindings.borrow_mut().insert(name.clone(), v(Value::Undefined));
+          // 1) Predeclare all bound identifiers as Undefined to allow self-reference during RHS evaluation
+          {
+            let mut predeclared: Vec<String> = Vec::new();
+            collect_pattern_idents(bindr.as_ref(), &mut predeclared);
+            let mut frame = final_env.bindings.borrow_mut();
+            for name in predeclared {
+              frame.insert(name, v(Value::Undefined));
+            }
+          }
 
-          let val = match val_expr.as_ref() {
+          // 2) Evaluate the RHS in this environment
+          let rhs_val: Rc<Value> = match val_expr.as_ref() {
               Expr::Fn(params, f_body) => {
                   // Closure captures the final_env so recursive calls see the binding
                   v(Value::Closure(Closure {
@@ -177,9 +252,10 @@ pub fn do_eval(
               _ => do_eval(val_expr, &final_env, native_fns.clone())?,
           };
 
-          // Update binding in place
-          final_env.bindings.borrow_mut().insert(name.clone(), val);
+          // 3) Bind pattern from RHS value
+          bind_pattern(bindr.as_ref(), &rhs_val, &final_env)?;
 
+          // 4) Evaluate the body with updated environment
           do_eval(body, &final_env, native_fns)
       }
       Expr::Array(arr) =>{

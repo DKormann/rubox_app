@@ -12,7 +12,7 @@ pub enum Expr {
   Var(String),
   Fn(Vec<String>, Box<Expr>),
   Call(Box<Expr>, Vec<Expr>),
-  Let(String, Box<Expr>, Box<Expr>),
+  Let(Box<Expr>, Box<Expr>, Box<Expr>),
   Array(Vec<ArrElem>),
   Object(Vec<ObjElem>),
   Index(Box<Expr>, Box<Expr>),
@@ -50,7 +50,7 @@ pub enum Value {
   Undefined,
   Builtin(Builtin),
   NativeFn(String),
-
+  
 }
 use std::fmt;
 
@@ -237,6 +237,10 @@ pub fn mk_int(n: i32) -> Expr {
   Expr::Value(Box::new(Value::Int(n)))
 }
 
+pub fn mk_null() -> Expr {
+  Expr::Value(Box::new(Value::Null))
+}
+
 #[allow(dead_code)]
 pub fn mk_fn(params: Vec<String>, body: Expr) -> Expr {
   Expr::Fn(
@@ -256,8 +260,13 @@ pub fn mk_string(s: String) -> Expr {
 }
 
 pub fn mk_let(name: String, value: Expr, body: Expr) -> Expr {
-  Expr::Let(name, Box::new(value), Box::new(body))
+  Expr::Let(Box::new(Expr::Var(name)), Box::new(value), Box::new(body))
 }
+
+pub fn mk_let_gen(bindr: Expr, value: Expr, body: Expr) -> Expr {
+  Expr::Let(Box::new(bindr), Box::new(value), Box::new(body))
+}
+
 
 pub fn mk_array(elems: Vec<Expr>) -> Expr {
   Expr::Array(elems.into_iter().map(|e| ArrElem::Expr(e)).collect())

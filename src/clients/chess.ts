@@ -67,22 +67,18 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
     let [x,y] = posVec(pos)
     return board[y][x]
   }
+  
+  function arrSet<S>(arr:S[], index:number, value:S):S[]{
+    return arr.map((v,i)=>i == index ? value : v)
+  }
 
-  function setPieceAt(board:Board, pos:Pos, piece:ChessPiece|null){
+  function setPieceAt(board:Board, pos:Pos, piece:ChessPiece|null):Board{
     let [x,y] = posVec(pos)
-    board[y][x] = piece
+    return arrSet(board, y, arrSet(board[y], x, piece)) as Board
   }
   
-  function getKing(board:Board, color:"white"|"black"):Pos|null{
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        let piece = board[i][j]
-        if (piece && piece.color === color && piece.type === "king"){
-          return (i * 10) + j
-        }
-      }
-    }
-    return null
+  function hasKing(board:Board, color:"white"|"black"):boolean{
+    return board.filter((r,i)=>r.filter((p,j)=>(p && p.type == "king")).length > 0).length > 0
   }
 
   
@@ -90,13 +86,13 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
     let rook = [10,-10,1,-1]
     let bish = [11, -11, 9, -9]
 
-    if (p.type.startsWith("pawnmoved")) return p.color === "white" ? [10] : [-10]
-    if (p.type.startsWith("pawn")) return p.color === "white" ? [10,20] : [-10,-20]
-    if (p.type.startsWith("knight")) return [12,8,21,19,-12,8,-21,-19]
-    if (p.type.startsWith("bishop")) return bish
-    if (p.type.startsWith("rook")) return rook
-    if (p.type.startsWith("queen")||p.type.startsWith("king")) return bish.concat(rook)
-    return []
+
+    return p.type.startsWith("pawn") ? (p.color == "white" ? [10,20] : [-10,-20]) :
+      p.type.startsWith("knight") ? [12,8,21,19,-12,8,-21,-19] :
+      p.type.startsWith("bishop") ? bish :
+      p.type.startsWith("rook") ? rook :
+      p.type.startsWith("queen")||p.type.startsWith("king") ? bish.concat(rook) :
+      []
   }
 
   function posadd(start:Pos, vec:[number, number]):Pos{
@@ -108,6 +104,8 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
   function getPossibleMoves(board:Board, pos:Pos):Pos[]{
 
     let piece = getPieceAt(board, pos)
+
+
     if (!piece) return []
     let res : Pos[] = []
 
@@ -138,17 +136,32 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
       let ranged = ty.startsWith("rook") || ty.startsWith("bishop") || ty.startsWith("queen")
       for (let dir of dirs){
         let pp = pos
-        while(true){
-          pp = pp+dir
-          if (!isPos(pp)) break
-          let tar = getPieceAt(board,pp)
-          if (tar){
-            if (piece.color !== tar.color) res.push(pp)
-            break
-          }
-          res.push(pp)
-          if (!ranged) break
+
+
+        
+        // while(true){
+        //   pp = pp+dir
+        //   if (!isPos(pp)) break
+        //   let tar = getPieceAt(board,pp)
+        //   if (tar){
+        //     if (piece.color !== tar.color) res.push(pp)
+        //     break
+        //   }
+        //   res.push(pp)
+        //   if (!ranged) break
+        // }
+
+
+
+        function check(pp:Pos){
+          
+          let nextpp = pp + dir
+          let tar = getPieceAt(board,nextpp)          
+
         }
+
+        
+
       }
       if (ty=="king"){
         if (getPieceAt(board, pos +1) == null && getPieceAt(board,pos + 2) == null && getPieceAt(board, pos + 3)?.type == "rook") res.push(pos +2)
@@ -171,45 +184,41 @@ let chessCtx = (c:DefaultContext):ChessContext=>{
 
   function makeMove(m:Match, move:Move):[string, Match]{
 
-    if (m.winner != null) return ["game over", m]
-
     let mover = getPieceAt(m.board, move.start)
+    if (!mover) return ["no piece at start", m]
+    if (m.winner != null) return ["game over", m]
     if (!mover || mover.color !== m.turn) return ["not your turn", m]
     let legalmoves = getLegalMoves(m.board, move.start)
     if (!legalmoves.includes(move.end)) return ["illegal move", m]
 
     if (mover.type == "pawn" || mover.type == "king" || mover.type == "rook") mover.type += "moved"
     if (mover.type == "pawnmoved" && Math.abs(move.end - move.start) == 20) mover.type = "pawnmoveddouble" 
-    if (mover.type.startsWith("pawn")){
-      if (move.start%10 != move.end%10){
-        if (getPieceAt(m.board, move.end) == null){
-          setPieceAt(m.board, vecPos([move.end%10, Math.floor(move.start/10)]), null)
-        }
-      }
-    }
 
-    if (mover.type.startsWith("king")){
-      let dist = move.start - move.end
-      if (dist == 2){
-        setPieceAt(m.board, move.end + 1, {...mover, type:"rookmoved"})
-        setPieceAt(m.board, move.end - 2, null)
-      }
-      if (dist == -2){
-        setPieceAt(m.board, move.end - 1, {...mover, type:"rookmoved"})
-        setPieceAt(m.board, move.end + 1, null)
-      }
-    }
-    setPieceAt(m.board, move.end, mover)
-    if (mover.type.startsWith("pawn")){
-      let y = Math.floor(move.end/10)
-      if (y == 0 || y == 7) setPieceAt(m.board, move.end, {...mover, type: move.promo})
-    }
-    setPieceAt(m.board, move.start, null)
 
-    m.turn = m.turn === "white" ? "black" : "white"
-    if (getKing(m.board,m.turn) == null) m.winner = m.turn === "white" ? "black" : "white"
+    let sendcond = (mover.type.startsWith("pawn")) && (move.start%10 != move.end%10) && (getPieceAt(m.board, move.end) == null)
+    let board: Board = sendcond ? setPieceAt(m.board, vecPos([move.end%10, Math.floor(move.start/10)]), null) : m.board;
 
-    return ["", m]
+
+    let dist = move.end - move.start;
+
+    let board2 = (
+      mover.type.startsWith("king")
+      ? ( dist == 2 ? setPieceAt(setPieceAt(board, move.end + 1, {...mover, type:"rookmoved"}), move.end - 2, null)
+      : (dist == -2 ? setPieceAt(setPieceAt(board, move.end - 1, {...mover, type:"rookmoved"}), move.end + 1, null) : board))
+      : board
+    );
+
+
+    let y = Math.floor(move.end/10)
+
+    let board4 = setPieceAt(setPieceAt(board2, move.end, (mover.type.startsWith("pawn") && (y == 0 || y == 7))? {...mover, type: move.promo} : mover), move.start, null)
+
+    return ["", {
+      ...m,
+      board: board4,
+      turn: m.turn == "white" ? "black" : "white",
+      winner: hasKing(board4,m.turn) == null ? (m.turn == "white" ? "black" : "white") : null
+    }]
   }
 
   return {

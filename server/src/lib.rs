@@ -11,7 +11,10 @@ use sha2::{Sha256, Digest};
 
 // use rubox::{ast::{mk_fn, mk_native_fn, Value}, *};
 use im::HashMap;
-mod tests;
+// mod tests;
+mod test_parse_expr;
+mod test_eval_expr;
+
 mod lang;
 
 use lang::parser::*;
