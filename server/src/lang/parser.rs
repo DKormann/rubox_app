@@ -153,6 +153,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
       Ok(current)
     },
 
+    Rule::block => build_block(pair),
     _ => unreachable!("unhandled rule in expr: {:?}", pair.as_rule()),
   }
 }
@@ -273,7 +274,7 @@ fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
   Ok(Expr::Array(elems))
 }
 
-fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
+fn build_block(pair: pest::iterators::Pair<Rule>, is_function_body: bool) -> Result<Expr, pest::error::Error<Rule>> {
 
   let mut lets: Vec<(Expr, Expr)> = Vec::new();
   let mut result: Option<Expr> = None;
@@ -305,7 +306,7 @@ fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
             let params_pair = f_inner.next().unwrap();                // params
             let params = build_params(params_pair);
             let body_pair = f_inner.next().unwrap();                  // block
-            let body_expr = build_block(body_pair)?;
+            let body_expr = build_block(body_pair, true)?;
             let init = mk_fn(params, body_expr);
             lets.push((Expr::Var(name), init));
           }
@@ -313,7 +314,10 @@ fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
             let mut inner = inner_stmt.into_inner();
             let cond = build_expr(inner.next().unwrap())?;
             let then_branch = build_expr(inner.next().unwrap())?;
-            let else_branch = build_expr(inner.next().unwrap())?;
+            let else_branch = match inner.next() {
+              Some(p) => build_expr(p)?,
+              None => Expr::Value(Box::new(Value::Undefined)),
+            };
             lets.push((mk_var(""), mk_conditional(cond, then_branch, else_branch)));
           }
 
@@ -330,46 +334,18 @@ fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
     }
   }
 
-  let mut body = result.unwrap_or_else(|| Expr::Value(Box::new(Value::Undefined)));
+  let mut body = result.unwrap_or_else(||
+    if is_function_body{
+      mk_undefined()
+    }else{
+      mk_undefined()
+    });
 
   for (bindr, init) in lets.into_iter().rev() {
     body = mk_let_gen(bindr, init, body);
   }
   Ok(body)
 }
-
-
-
-
-// #[test]
-// fn test_parse_if_else(){
-//   let code = "(()=>{
-//     if (c) {
-//       return 22;
-//     } else {
-//       return 44;
-//     }
-//   })";
-//   let exp = "(()=>{
-//     let [_ret, _val] = c ? [true, 22] : [true, 44];
-//     _ret ? _val : undefined;
-//   })";
-//   test_parse_equiv(code, exp);
-// }
-
-
-
-// fn build_block_
-
-
-// fn build_if_else_rest(pair: pest::iterators::Pair<Rule>, rest: Expr) -> Result<Expr, pest::error::Error<Rule>> {
-//   let mut inner = pair.into_inner();
-//   let cond = build_expr(inner.next().unwrap())?;
-//   let then_branch = build_expr(inner.next().unwrap())?;
-//   let else_branch = build_expr(inner.next().unwrap())?;
-
-
-
 
 
 fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {

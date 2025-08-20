@@ -209,7 +209,6 @@ use crate::lang::parser::*;
       }
       return 33
       })()", "22");
-
   }
 
   #[test]
@@ -241,6 +240,23 @@ use crate::lang::parser::*;
       return 33
       })()", "33");
 
+  }
+
+
+  #[test]
+  fn eval_early_return5(){
+    
+    test_code_equiv("(()=>{
+
+      if (true){
+        if (true){
+          return 22;
+        }
+      }else{
+        return 44;
+      }
+      return 33
+      })()", "22");
   }
 
 

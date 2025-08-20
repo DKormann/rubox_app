@@ -170,7 +170,7 @@ use crate::lang::parser::*;
 
     test_parse(code,
       mk_fn(vec![],
-        mk_let("x".into(), mk_int(2), mk_block(true, mk_var("x")))
+        mk_let("x".into(), mk_int(2), Expr::ReturnCmd(Box::new(mk_var("x"))))
       )
     );
   }
@@ -193,7 +193,7 @@ use crate::lang::parser::*;
     test_parse(code,
       mk_fn(vec![],
         mk_let("x".into(), mk_int(2), 
-          mk_let("".into(), mk_call(mk_var("DBSet"), vec![mk_var("x")]), mk_var("x"))
+          mk_let("".into(), mk_call(mk_var("DBSet"), vec![mk_var("x")]), Expr::ReturnCmd(Box::new(mk_var("x"))))
       ))
     );
   }
@@ -210,13 +210,13 @@ use crate::lang::parser::*;
 
     test_parse(code,
       mk_fn(vec![],
-        // todo!()
         mk_let_chain(vec![
             ("x".into(), mk_int(2)),
             ("".into(), mk_call(mk_var("DBSet"), vec![mk_var("x")])),
-            ("f".into(), mk_fn(vec![], mk_int(3))),
+            ("f".into(), mk_fn(vec![], Expr::ReturnCmd(Box::new(mk_int(3))))),
           ], 
-          mk_var("x".into()))
+          Expr::ReturnCmd(Box::new(mk_var("x".into())))
+        )
       )
     );
   }
@@ -231,7 +231,7 @@ use crate::lang::parser::*;
       mk_let_chain(vec![
         ("o".into(), mk_object(vec![("f".into(), mk_fn(vec!["x".into()], mk_var("x")))])),
       ],
-      mk_call(mk_access(mk_var("o".into()),"f".into()), vec![mk_int(22)])
+      Expr::ReturnCmd(Box::new(mk_call(mk_access(mk_var("o".into()),"f".into()), vec![mk_int(22)])))
       ),
     ),
     vec![]));

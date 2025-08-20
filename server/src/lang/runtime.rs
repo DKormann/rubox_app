@@ -161,15 +161,13 @@ fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns:
 
   let res = do_eval(&cl.body, &call_env, native_fns)?;
 
-
   match res.as_ref(){
     Value::ReturnValue{val}=>{
       match &cl.body{
-        Expr::ReturnCmd(_) | Expr::Conditional(_, _, _) | Expr::Let(_, _, _) =>{
-          Ok(v(Value::ReturnValue { val: val.clone() }))
-        },
+        Expr::ReturnCmd(_) | Expr::Conditional(_, _, _) | Expr::Let(_, _, _) =>{},
         _=>panic!("return value not expected")
-      }
+      };
+      Ok(val.clone())
     },
     _=>Ok(res)
   }
@@ -566,7 +564,11 @@ pub fn do_eval(
         }
       },
       Expr::ReturnCmd(block) => {
-        do_eval(block, env, native_fns)
+        let inner = do_eval(block, env, native_fns.clone())?;
+        match inner.as_ref() {
+          Value::ReturnValue { .. } => Ok(inner),
+          _ => Ok(v(Value::ReturnValue { val: inner.clone() })),
+        }
       },
   }
 }
