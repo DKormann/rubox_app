@@ -28,12 +28,6 @@ type Move = {
   promo: PieceType
 }
 
-type ChessContext = {
-  startBoard: Board
-  makeMove: (m:Match, move:Move) => [string, Match]
-  getLegalMoves: (board:Board, pos:Pos) => Pos[]
-}
-
 
 let chessCtx : ServerApp <ChessContext> = {
 
@@ -116,9 +110,6 @@ let chessCtx : ServerApp <ChessContext> = {
       if (!piece) {return ["no piece at start", m]}
       if (m.winner != null) {return ["game over", m]}
       if (piece.color != m.turn) {return ["not your turn", m]}
-
-      console.log(move.start, move.end);
-      
       
       let options = getLegalMoves(m.board, move.start)
       let dist = move.end - move.start
@@ -144,19 +135,29 @@ let chessCtx : ServerApp <ChessContext> = {
       startBoard,
       getLegalMoves,
       makeMove,
-    }
+    } as ChessContext
   },
   api: {
 
     getstartBoard: (c, arg)=>{
-
       return c.startBoard
+    },
 
+    getMoves: (c, arg)=>{
+      return c.getLegalMoves(c.startBoard,10)
+    },
+    mkMove: (c, arg:[Match, Move])=>{
+      return c.makeMove(arg[0], arg[1])
     }
-
   }
 }
 
+
+type ChessContext = {
+  startBoard: Board
+  makeMove: (m:Match, move:Move) => [string, Match]
+  getLegalMoves: (board:Board, pos:Pos) => Pos[]
+}
 
 let pieceImages = {
   "pawn": "p",
@@ -245,23 +246,35 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
   let ctx = chessCtx.loadApp(undefined);
 
 
-
-  conn.handle(chessCtx).then(({call, users})=>{
-    console.log(call)
-
-    call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
-      displayBoard(m)
-    })
-  })
-
-
-
-
   let m : Match = {
     board: ctx.startBoard,
     turn: "white",
     winner: null
   }
+
+
+  conn.handle(chessCtx).then(({call, users})=>{
+    console.log(call)
+
+    call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
+      let b:Match = {
+        board: m,
+        turn: "white",
+        winner: null
+      }
+      displayBoard(b)
+
+    })
+
+    call(conn.identity, chessCtx.api.mkMove, [m , {start: 20, end: 30, promo: null}]).then(([err,m])=>{
+      console.log(err,m)
+      displayBoard(m)
+    })
+
+  })
+
+
+
 
   displayBoard(m)
 

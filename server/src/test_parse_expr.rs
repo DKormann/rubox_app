@@ -102,9 +102,16 @@ use crate::lang::parser::*;
 
   #[test]
   fn test_parse_object_spread(){
-    let code = "{a: 1, ...b}";
-    test_parse(code, mk_object(vec![("a".into(), mk_int(1)), ("b".into(), mk_var("b"))]))
+    let code = "{a: 1, ...b, c}";
+    test_parse(code, Expr::Object(vec![
+      ObjElem::Expr(("a".into(), mk_int(1))),
+      ObjElem::Spread(mk_var("b")),
+      ObjElem::Expr(("c".into(), mk_var("c"))),
+    ]));
   }
+
+
+
 
 
 
@@ -225,6 +232,39 @@ use crate::lang::parser::*;
   fn try_parse(code:&str){
     parse(code).expect("parse failed");
   }
+
+
+  fn test_parse_array_length(){
+    let code = "[1,2,3].length";
+    test_parse(code, mk_access(mk_var("a".into()), "length".into()));
+  }
+
+
+  #[test]
+  fn test_parse_array_map(){
+
+    try_parse("map(x=>x*2)");
+    let code = "[1,2,3].map(x=>x*2)";
+    test_parse(code, mk_call(mk_access(mk_array(vec![mk_int(1), mk_int(2), mk_int(3)]), "map".into()), vec![mk_fn(vec!["x".into()], mk_binop(mk_var("x"), "*".into(), mk_int(2)))]));
+  }
+
+
+  // #[test]
+  // fn test_parse_if_else(){
+  //   let code ="(()=>{
+  //   let x = null;
+  //   if (x) {
+  //     return 22;
+  //   } else {
+  //     return 44;
+  //   }
+  //   })";
+  //   test_parse(code, mk_fn(vec![], mk_let_chain(vec![
+  //     ("x".into(), mk_null()),
+  //     ("".into(), mk_conditional(mk_var("x"), mk_int(22), mk_int(44))),
+  //   ], mk_var("x"))));
+  // }
+
 
 
 }

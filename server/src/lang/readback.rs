@@ -36,6 +36,7 @@ pub fn read_back(a:&Value)->String{
         Builtin::DBHas=>"DB.has".into(),
         Builtin::DBUpdate=>"DB.update".into(),
         Builtin::DB=>"DB".into(),
+        _ => "[Builtin]".into()
       }
     }
     Value::NativeFn(_)=>"<NativeFunction>".into(),

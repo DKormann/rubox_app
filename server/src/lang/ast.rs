@@ -111,12 +111,28 @@ pub enum Builtin {
   ObjectEntries,
   Array,
   ArrayFrom,
+  ArrMethod(Vec<Rc<Value>>, Method),
   DB,
   DBGet,
   DBSet,
   DBHas,
   DBDelete,
   DBUpdate,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Method {
+  ArrayMap,
+  ArrayConcat,
+  ArrayFilter,
+  ArrayReduce,
+  ArrayFind,
+  ArrayFindIndex,
+  ArrayIncludes,
+  ArrayIndexOf,
+  ArrayLastIndexOf,
+  ArrayJoin,
+  ArraySlice,
 }
 
 
@@ -255,6 +271,8 @@ pub fn mk_call(func: Expr, args: Vec<Expr>) -> Expr {
 
 }
 
+
+
 pub fn mk_string(s: String) -> Expr {
   Expr::Value(Box::new(Value::String(s)))
 }
@@ -303,6 +321,10 @@ pub fn mk_object(elems: Vec<(String, Expr)>) -> Expr {
 
 pub fn mk_native_fn(fname: String) -> Expr {
   Expr::Value(Box::new(Value::NativeFn(fname)))
+}
+
+pub fn mk_builtin(builtin: Builtin) -> Expr {
+  Expr::Value(Box::new(Value::Builtin(builtin)))
 }
 
 pub fn mk_let_chain(lets: Vec<(String, Expr)>, result: Expr) -> Expr {

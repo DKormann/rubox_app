@@ -14,7 +14,7 @@ undefined  = { "undefined" }
 
 literal    = _{ float | int | string | string2 | boolean | null | undefined }
 
-params     = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
+params     = { ( "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" ) | ident }
 arglist    = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 prop       = { ( ident | string ) ~ ":" ~ expr }
 
@@ -22,7 +22,10 @@ spread     = { "..." ~ expr }
 arrayItem  = { expr | spread }
 
 array      = { "[" ~ (arrayItem ~ ("," ~ arrayItem)* ~ (",")?)? ~ "]" }
-object     = { "{" ~ ((prop | spread) ~ ("," ~ (prop|spread))*  )? ~ (",")? ~ "}" }
+
+
+
+object     = { "{" ~ ((prop | spread | ident) ~ ("," ~ (prop | spread | ident))*  )? ~ (",")? ~ "}" }
 
 fun        = { params ~ "=>" ~ (block | expr) }
 

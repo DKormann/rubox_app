@@ -60,18 +60,6 @@ use crate::lang::parser::*;
   }
 
 
-
-
-  // ********** parse Blocks **********
-
-
-  // let newBoard = arrSet(arrSet(m.board, move.start, null), move.end, { ...piece, type: ptype });
-
-
-  // let newBoard = arrSet(arrSet(m.board, move.start, null), move.end, { ...piece, type: ptype });
-
-  // ********** evaluate Expr **********
-
   #[test]
   fn test_parse_binops_eval(){
     test_code_equiv("2+2", "4");
@@ -119,19 +107,6 @@ use crate::lang::parser::*;
   }
 
 
-
-
-
-  
-    // test_block_equiv("let {a,...b} = {a:1,b:2,c:3}; return a;", "let a = 1; let b = [2,3]; return a;");
-
-    // test_block_equiv("let {a,b} = {a:1,b:2}; return a;", "let a = 1; let b = 2; return a;");
-    // test_block_equiv("let {a,...b} = {a:1,b:2,c:3}; return a;", "let a = 1; let b = [2,3]; return a;");
-
-
-
-
-
   #[test]
   fn full_eval_complex(){
     test_code_equiv("(()=>{ let o = {a:22}; return o.a; })()", "22");
@@ -146,6 +121,9 @@ use crate::lang::parser::*;
     test_code_equiv("1 ? 22 : 33" , "22");
     test_code_equiv("0 ? 22 : 33" , "33");
     test_code_equiv("0>1 ? 22 : 33" , "33");
+    test_code_equiv("null ? 22 : 33" , "33");
+    test_code_equiv("!null ? 22 : 33" , "22");
+
   }
 
 
@@ -208,14 +186,62 @@ use crate::lang::parser::*;
   fn eval_early_return(){
     test_code_equiv("(()=>{ if (true){ return 22; } return 33; })()", "22");
     test_code_equiv("(()=>{
-    if (true) 1 + 2;
-    else {
-      return 44;
-    }
-    
-    return 33;
-    })()", "33");
+      if (true){
+        return 22;
+      }else{
+        return 33;
+      }})()", "22");
+    test_code_equiv("(()=>{
+
+    // let a = true;
+    // if (a) 1 + 2;
+    // else {
+    //   return 44;
+    // }
+    // return 33;
+    // })()", "33");
+
+    // test_code_equiv("(()=>{
+    // let x = false;
+    // if (x) {
+    //   return 22;
+    // } else {
+    //   return 44;
+    // }
+    // })()", "44");
   }
+
+
+  #[test]
+  fn eval_object_spread(){
+    test_code_equiv("(()=>{ let o = {a:1,b:2}; return { ...o, c:3 }; })()", "{\"a\": 1, \"b\": 2, \"c\": 3 }");
+  }
+
+
+  #[test]
+  fn eval_array_length(){
+    test_code_equiv("[1,2,3].length", "3");
+  }
+
+  #[test]
+  fn eval_array_concat(){
+    test_code_equiv("[1,2,3].concat([4,5,6])", "[1,2,3,4,5,6]");
+  }
+
+  #[test]
+  fn eval_array_map(){
+    test_code_equiv("[1,2,3].map(x=>x*2)", "[2,4,6]");
+  }
+
+  #[test]
+  fn eval_array_filter(){
+    test_code_equiv("[1,2,3].filter(x=>x%2==0)", "[2]");
+  }
+
+
+
+
+
 
 }
 

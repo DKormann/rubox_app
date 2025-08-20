@@ -293,8 +293,7 @@ fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Exp
             lets.push((bindr, init));
           }
           Rule::expr_ => {
-            // unwrap to inner expr and treat as side-effecting statement:
-            // desugar to: let "" = <expr>; body
+
             let expr_pair = inner_stmt.into_inner().next().unwrap();
             let expr = build_expr(expr_pair)?;
             lets.push((mk_var(""), expr));
@@ -311,8 +310,9 @@ fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Exp
             lets.push((Expr::Var(name), init));
           }
           Rule::if_ => {
-            // Try to desugar: if (c) { return a; } return b;  ==>  return c ? a : b;
-            // Only when there is no explicit else and the next stmt is a return.
+            // Try to desugar to a value when possible so early returns work:
+            // 1) if (c) { return a; } return b;     ==> return c ? a : b;
+            // 2) if (c) { return a; } else { return b; } ==> return c ? a : b;
             let mut if_inner = inner_stmt.clone().into_inner();
             let cond_expr = build_expr(if_inner.next().unwrap())?;
             let then_pair = if_inner.next().unwrap();
@@ -321,31 +321,45 @@ fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Exp
               Rule::expr_ => build_single_stmt_block_expr(then_pair)?,
               _ => unreachable!("unexpected then branch in if_: {:?}", then_pair.as_rule()),
             };
-            let has_else = if_inner.next().is_some();
+            let else_pair_opt = if_inner.next();
 
-            if !has_else {
-              let mut next_is_return = false;
-              if let Some(next_pair) = inner.peek() {
-                if next_pair.as_rule() == Rule::stmt {
-                  let next_inner_stmt = next_pair.clone().into_inner().next().unwrap();
-                  if next_inner_stmt.as_rule() == Rule::return_ { next_is_return = true; }
-                }
-              }
-
-              if next_is_return {
-                // Consume the next return statement and build a conditional result
-                let consumed_stmt = inner.next().unwrap(); // Rule::stmt
-                let ret_stmt = consumed_stmt.into_inner().next().unwrap(); // Rule::return_
-                let ret_expr_pair = ret_stmt.into_inner().next().unwrap(); // expr
-                let ret_expr = build_expr(ret_expr_pair)?;
-                result = Some(mk_conditional(cond_expr, then_expr, ret_expr));
+            match else_pair_opt {
+              // Case 2: explicit else; treat the entire if/else as producing a value
+              Some(else_pair) => {
+                let else_expr = match else_pair.as_rule() {
+                  Rule::if_ => build_if_stmt_as_expr(else_pair)?,
+                  Rule::block => build_block_as_function_body(else_pair)?,
+                  Rule::expr_ => build_single_stmt_block_expr(else_pair)?,
+                  _ => unreachable!("unexpected rule after else: {:?}", else_pair.as_rule()),
+                };
+                result = Some(mk_conditional(cond_expr, then_expr, else_expr));
                 break;
               }
-            }
+              // Case 1: no else, but next stmt is a return; lift to conditional result
+              None => {
+                let mut next_is_return = false;
+                if let Some(next_pair) = inner.peek() {
+                  if next_pair.as_rule() == Rule::stmt {
+                    let next_inner_stmt = next_pair.clone().into_inner().next().unwrap();
+                    if next_inner_stmt.as_rule() == Rule::return_ { next_is_return = true; }
+                  }
+                }
 
-            // Fallback: treat the if as a side-effecting expression within the block
-            let expr = build_if_stmt_as_expr(inner_stmt)?;
-            lets.push((mk_var(""), expr));
+                if next_is_return {
+                  // Consume the next return statement and build a conditional result
+                  let consumed_stmt = inner.next().unwrap(); // Rule::stmt
+                  let ret_stmt = consumed_stmt.into_inner().next().unwrap(); // Rule::return_
+                  let ret_expr_pair = ret_stmt.into_inner().next().unwrap(); // expr
+                  let ret_expr = build_expr(ret_expr_pair)?;
+                  result = Some(mk_conditional(cond_expr, then_expr, ret_expr));
+                  break;
+                }
+
+                // Fallback: treat the if as a side-effecting expression within the block
+                let expr = build_if_stmt_as_expr(inner_stmt)?;
+                lets.push((mk_var(""), expr));
+              }
+            }
           }
 
           Rule::return_ => {
@@ -400,7 +414,7 @@ fn build_single_stmt_block_expr(pair: pest::iterators::Pair<Rule>) -> Result<Exp
 fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
   let mut props: Vec<ObjElem> = Vec::new();
   for p in pair.into_inner() { // prop items
-    
+
     match p.as_rule() {
       Rule::prop=>{
         let mut inner = p.into_inner();
@@ -422,7 +436,11 @@ fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::
       Rule::spread=>{
         let expr = build_expr(p.into_inner().next().unwrap())?;
         props.push(ObjElem::Spread(expr));
-        
+      }
+      Rule::ident=>{
+        // Handle potential prop shorthand if grammar yields a bare ident inside object
+        let key = p.as_str().to_string();
+        props.push(ObjElem::Expr((key.clone(), Expr::Var(key))));
       }
       _=>unreachable!("unhandled rule in object: {:?}", p.as_rule()),
     }

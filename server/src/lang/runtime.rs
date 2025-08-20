@@ -142,7 +142,28 @@ pub fn cast_bool(val: &Value)->bool{
   }
 }
 
+fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<VRef, String>{              if cl.params.len() != arg_vals.len() {
+    return Err(format!(
+        "arity mismatch: expected {} arguments : {}, got {}",
+        cl.params.len(),
+        cl.params.iter().map(|p| p.clone()).collect::<Vec<String>>().join(", "),
+        arg_vals.len()
+    ));
+  }
+
+  let call_env = Rc::new(EnvData {
+    bindings: RefCell::new(HashMap::new()),
+    parent: Some(cl.env.clone()),
+  });
+  for (param, arg) in cl.params.iter().zip(arg_vals) {
+    call_env.bindings.borrow_mut().insert(param.clone(), arg);
+  }
+
+  do_eval(&cl.body, &call_env, native_fns)
+}
+
 pub fn do_eval(
+  
   expr: &Expr,
   env: &EnvRef,
   native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone
@@ -162,64 +183,109 @@ pub fn do_eval(
       }
 
       Expr::Call(func_expr, arg_exprs) => {
-          // Evaluate the function expression.
-          let fun = do_eval(func_expr, env, native_fns.clone())?;
+        // Evaluate the function expression.
+        let fun = do_eval(func_expr, env, native_fns.clone())?;
 
-          let mut arg_vals = Vec::with_capacity(arg_exprs.len());
-          for a in arg_exprs {
-              arg_vals.push(do_eval(a, env, native_fns.clone())?);
+        let mut arg_vals = Vec::with_capacity(arg_exprs.len());
+        for a in arg_exprs {
+          arg_vals.push(do_eval(a, env, native_fns.clone())?);
+        }
+
+        match fun.as_ref() {
+          Value::Closure(cl) => {
+            run_closure(cl, arg_vals, env, native_fns)
           }
-
-          match fun.as_ref() {
-              Value::Closure(cl) => {
-                  if cl.params.len() != arg_vals.len() {
-                      return Err(format!(
-                          "arity mismatch: expected {} arguments, got {}",
-                          cl.params.len(),
-                          arg_vals.len()
-                      ));
-                  }
-
-                  let call_env = Rc::new(EnvData {
-                      bindings: RefCell::new(HashMap::new()),
-                      parent: Some(cl.env.clone()),
-                  });
-                  for (param, arg) in cl.params.iter().zip(arg_vals) {
-                      call_env.bindings.borrow_mut().insert(param.clone(), arg);
-                  }
-
-                  do_eval(&cl.body, &call_env, native_fns)
-              }
-              Value::Builtin(builtin)=>{
-                match builtin {
-                  Builtin::ObjectKeys=>{
-                    let mut keys: Vec<Rc<Value>> = Vec::new();
-                    match arg_vals.get(0) {
-                      Some(obj)=>{
-                        match obj.as_ref() {
-                          Value::Object(obj_map)=>{
-                            for (k,_) in obj_map {
-                              keys.push(v(Value::String(k.clone())));
-                            }
-                          }
-                          _=>return Err("attempted to call Object.keys on a non-object value".into())
+          Value::Builtin(builtin)=>{
+            match builtin {
+              Builtin::ObjectKeys=>{
+                let mut keys: Vec<Rc<Value>> = Vec::new();
+                match arg_vals.get(0) {
+                  Some(obj)=>{
+                    match obj.as_ref() {
+                      Value::Object(obj_map)=>{
+                        for (k,_) in obj_map {
+                          keys.push(v(Value::String(k.clone())));
                         }
                       }
                       _=>return Err("attempted to call Object.keys on a non-object value".into())
                     }
-                    Ok(v(Value::Array(keys)))
+                  }
+                  _=>return Err("attempted to call Object.keys on a non-object value".into())
+                }
+                Ok(v(Value::Array(keys)))
+              },
+              Builtin::ArrMethod(self_arr, method)=>{
+                match method {
+                  Method::ArrayConcat=>{
+                    let mut narr: Vec<Rc<Value>> = Vec::new();
+                    for v in self_arr {narr.push(v.clone());};
+                    for v in arg_vals {
+                      match v.as_ref() {
+                        Value::Array(arr) => {
+                          for v in arr {
+                            narr.push(v.clone());
+                          }
+                        }
+                        _=>narr.push(v.clone())
+                      }
+                    }
+                    Ok(v(Value::Array(narr)))
                   },
-                  _ => Err("attempted call a non‑function value".into()),
+                  Method::ArrayMap=>{
+                    let mut narr: Vec<Rc<Value>> = Vec::new();
+                    let fun = arg_vals.get(0).ok_or(format!("attempted to map a non-function value"))?;
+                    match fun.as_ref() {
+                      Value::Closure(cl)=>{
+                        for (i,v) in self_arr.iter().enumerate() {
+                          // let res = run_closure(cl, vec![v.clone()], env, native_fns.clone())?;
+                          let args = if (cl.params.len() == 1) {vec![v.clone()]} else {vec![v.clone(), Rc::new(Value::Int(i as i32))]};
+                          let res = run_closure(cl, args, env, native_fns.clone())?;
+                          narr.push(res);
+                        }
+                      }
+                      _=>return Err("attempted to map a non-function value".into())
+                    }
+                    Ok(v(Value::Array(narr)))
+                  },
+
+                  Method::ArrayFilter=>{
+                    let mut narr: Vec<Rc<Value>> = Vec::new();
+                    let fun = arg_vals.get(0).ok_or(format!("attempted to filter a non-function value"))?;
+                    match fun.as_ref() {
+                      Value::Closure(cl)=>{
+                        for v in self_arr {
+                          let res = run_closure(cl, vec![v.clone()], env, native_fns.clone())?;
+                          if cast_bool(&res) {
+                            narr.push(v.clone());
+                          }
+                        };
+                        Ok(v(Value::Array(narr)))
+                      }
+                      _=>return Err("attempted to filter a non-function value".into())
+                    }
+                  },
+                  Method::ArrayIncludes=>{
+                    let val = arg_vals.get(0).ok_or(format!("attempted to include a non-value"))?;
+                    let mut found = false;
+                    for v in self_arr {
+                      if v == val {found = true; break;}
+                    }
+                    Ok(v(Value::Boolean(found)))
+                  }
+                  _=>return Err(format!("method {:?} not found on array", method))
                 }
               },
-              Value::NativeFn(func)=>{
+              _=>return Err("attempted to call Object.keys on a non-object value".into())
+            }
+          },
+          Value::NativeFn(func)=>{
 
-                let args: Vec<Value> = arg_vals.into_iter().map(|v| (*v).clone()).collect();
-                let res = native_fns(func, args)?;
-                Ok(v(res))
-              },
-              _ => Err("attempted call a non‑function value".into()),
-          }
+            let args: Vec<Value> = arg_vals.into_iter().map(|v| (*v).clone()).collect();
+            let res = native_fns(func, args)?;
+            Ok(v(res))
+          },
+          _ => Err("attempted call a non‑function value".into()),
+        }
       }
 
       Expr::Let(bindr, val_expr, body) => {
@@ -249,7 +315,13 @@ pub fn do_eval(
                       env: final_env.clone(),
                   }))
               }
-              _ => do_eval(val_expr, &final_env, native_fns.clone())?,
+              _ => match do_eval(val_expr, &final_env, native_fns.clone()){
+                Ok(v)=>v,
+                Err(e)=>{
+
+                  return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+                }
+              },
           };
 
           // 3) Bind pattern from RHS value
@@ -330,37 +402,28 @@ pub fn do_eval(
             .ok_or_else(|| format!("property {} not found on object", prop))
           }
 
+
+
           Value::Array(arr)=>{
             match prop.as_str() {
               "length" => Ok(v(Value::Int(arr.len() as i32))),
-              "concat" => {
-                let other = do_eval(primary,env,native_fns.clone())?;
-                match other.as_ref() {
-                  Value::Array(other_arr)=>{
-                    let mut narr: Vec<Rc<Value>> = Vec::new();
-                    for v in arr {
-                      narr.push(v.clone());
-                    }
-                    for v in other_arr {
-                      narr.push(v.clone());
-                    }
-                    Ok(v(Value::Array(narr)))
-                  }
-                  _=>return Err("attempted to concatenate a non-array value".into())
-                }
-              }
-              "map" => todo!(),
-              "filter" => todo!(),
-              "reduce" => todo!(),
-              "find" => todo!(),
-              "findIndex" => todo!(),
-              "includes" => todo!(),
-              "indexOf" => todo!(),
-              "lastIndexOf" => todo!(),
-              "join" => todo!(),
-              "slice" => todo!(),
-              _=>return Err(format!("property {} not found on array", prop))
-            }
+              _=>{let method: Result<Method, String>= match prop.as_str() {
+                "concat" => Ok(Method::ArrayConcat),
+                "map" => Ok(Method::ArrayMap),
+                "filter" => Ok(Method::ArrayFilter),
+                "reduce" => Ok(Method::ArrayReduce),
+                "find" => Ok(Method::ArrayFind),
+                "findIndex" => Ok(Method::ArrayFindIndex),
+                "includes" => Ok(Method::ArrayIncludes),
+                "indexOf" => Ok(Method::ArrayIndexOf),
+                "lastIndexOf" => Ok(Method::ArrayLastIndexOf),
+                "join" => Ok(Method::ArrayJoin),
+                "slice" => Ok(Method::ArraySlice),
+                _=>return Err(format!("property {} not found on array", prop))
+              };
+              Ok(v(Value::Builtin(Builtin::ArrMethod(arr.clone(), method?)))
+              )
+            }}
           }
 
           Value::Builtin(builtin)=>{
@@ -386,7 +449,7 @@ pub fn do_eval(
               _=>return Err(format!("property {} not found on builtin", prop))
             }
           },
-          _=>return Err("attempted to access a non-object value".into())
+          _=>return Err(format!("attempted to access a non-object value : {:?} . {:?}", primary_val.as_ref(), prop))
         }
       },
       Expr::Conditional(c,t,e) => {
@@ -400,7 +463,7 @@ pub fn do_eval(
           "!" => Ok(v(Value::Boolean(!cast_bool(&val)))),
           "-" => Ok(v(Value::Int(-i32::try_from(val.as_ref()).map_err(|e| format!("int error: {:?}", e))?))),
           "-" => Ok(v(Value::Float(-f64::try_from(val.as_ref()).map_err(|e| format!("float error: {:?}", e))?))),
-          _ => Err("unknown operator".into()),
+          _ => Err(format!("unknown operator: {:?}", op)),
         }
       },
       Expr::Binop(left, op, right) => {
@@ -420,7 +483,7 @@ pub fn do_eval(
               _ => Err("unsupported + operands".into()),
             }
           }
-          "-" | "*" | "/" => {
+          "-" | "*" | "/" | "%" => {
             // Coerce numeric pairs (int/float)
             let as_float = match (lv.as_ref(), rv.as_ref()) {
               (Value::Int(a), Value::Int(b)) => (Some(*a as f64), Some(*b as f64)),
@@ -440,6 +503,7 @@ pub fn do_eval(
                     if ai % bi == 0 { return Ok(v(Value::Int(ai / bi))); }
                     return Ok(v(Value::Float(a / b)));
                   }
+                  "%" => return Ok(v(Value::Int(ai % bi))),
                   _ => unreachable!(),
                 }
               }
@@ -447,7 +511,7 @@ pub fn do_eval(
               let res = match op.as_str() { "-" => a - b, "*" => a * b, "/" => a / b, _ => unreachable!() };
               Ok(v(Value::Float(res)))
             } else {
-              Err("numeric operator on non-numeric values".into())
+              Err(format!("numeric operator {} on non-numeric values : {:?} {:?}", op, lv, rv))
             }
           }
 
@@ -473,7 +537,7 @@ pub fn do_eval(
             }?;
             Ok(res)
           }
-          _ => Err("unknown operator".into()),
+          _ => Err(format!("unknown operator: {:?}", op)),
         }
       },
   }
