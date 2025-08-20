@@ -241,31 +241,22 @@ use crate::lang::parser::*;
       return 33
       })()", "33");
 
-
-  
-
-
-    // The following case is intentionally commented out because the JS code inside the
-    // string is fully commented and omits the necessary closing braces, making it invalid.
-    // test_code_equiv("(()=>{
-    //
-    // let a = true;
-    // if (a) 1 + 2;
-    // else {
-    //   return 44;
-    // }
-    // return 33;
-    // })()", "33");
-
-    // test_code_equiv("(()=>{
-    // let x = false;
-    // if (x) {
-    //   return 22;
-    // } else {
-    //   return 44;
-    // }
-    // })()", "44");
   }
+
+
+  fn eval_conditional_block(){
+    test_code_equiv("(()=>{
+      if (true){
+        let a = 2
+        if (true){
+          let a = 3
+        }
+        return a;
+      }
+    })()", "2");
+  }
+
+
 
 
   #[test]

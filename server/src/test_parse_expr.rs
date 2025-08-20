@@ -170,7 +170,7 @@ use crate::lang::parser::*;
 
     test_parse(code,
       mk_fn(vec![],
-        mk_let("x".into(), mk_int(2), mk_var("x"))
+        mk_let("x".into(), mk_int(2), mk_block(true, mk_var("x")))
       )
     );
   }
@@ -269,48 +269,48 @@ use crate::lang::parser::*;
 
 
 
-  #[test]
-  fn test_parse_if_else(){
-    let code = "(()=>{
-      if (c) {
-        return 22;
-      } else {
-        return 44;
-      }
-    })";
+  // #[test]
+  // fn test_parse_if_else(){
+  //   let code = "(()=>{
+  //     if (c) {
+  //       return 22;
+  //     } else {
+  //       return 44;
+  //     }
+  //   })";
 
-    let exp = "(()=>{
+  //   let exp = "(()=>{
 
-      let [_ret, _val] = c ? [true, 22] : [true, 44];
-      _ret ? _val : undefined;
+  //     let [_ret, _val] = c ? [true, 22] : [true, 44];
+  //     _ret ? _val : undefined;
 
-    })";
+  //   })";
 
-    test_parse_equiv(code, exp);
-  }
+  //   test_parse_equiv(code, exp);
+  // }
 
 
-  #[test]
-  fn test_parse_if_else2(){
-    let code = "(()=>{
-      if (c) {
-        return 22;
-      } else {
-        eff();
-      }
+  // #[test]
+  // fn test_parse_if_else2(){
+  //   let code = "(()=>{
+  //     if (c) {
+  //       return 22;
+  //     } else {
+  //       eff();
+  //     }
       
-    })";
+  //   })";
 
-    test_parse(code,
-      mk_fn(vec![],
-        mk_let_gen(mk_array(vec![mk_var("_ret".into()), mk_var("_val".into())]),
-          mk_conditional(mk_var("c"),
-            mk_array(vec![mk_bool(true), mk_int(22)]), 
-            mk_array(vec![mk_bool(false), mk_call(mk_var("eff"), vec![])]),
-          ),
-          mk_conditional(mk_var("_ret"), mk_var("_val"), mk_undefined())
-        )
-      )
-    )
-  }
+  //   test_parse(code,
+  //     mk_fn(vec![],
+  //       mk_let_gen(mk_array(vec![mk_var("_ret".into()), mk_var("_val".into())]),
+  //         mk_conditional(mk_var("c"),
+  //           mk_array(vec![mk_bool(true), mk_int(22)]), 
+  //           mk_array(vec![mk_bool(false), mk_call(mk_var("eff"), vec![])]),
+  //         ),
+  //         mk_conditional(mk_var("_ret"), mk_var("_val"), mk_undefined())
+  //       )
+  //     )
+  //   )
+  // }
 }

@@ -38,7 +38,10 @@ pub fn read_back(a:&Value)->String{
         Builtin::DB=>"DB".into(),
         _ => "[Builtin]".into()
       }
-    }
+    },
+    Value::ReturnValue{val}=>{
+      format!("[ReturnValue({:?})]", read_back(val))
+    },
     Value::NativeFn(_)=>"<NativeFunction>".into(),
   }
 }

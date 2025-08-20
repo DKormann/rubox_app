@@ -144,13 +144,12 @@ pub fn cast_bool(val: &Value)->bool{
 
 fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<VRef, String>{              if cl.params.len() != arg_vals.len() {
     return Err(format!(
-        "arity mismatch: expected {} arguments : {}, got {}",
-        cl.params.len(),
-        cl.params.iter().map(|p| p.clone()).collect::<Vec<String>>().join(", "),
-        arg_vals.len()
+      "arity mismatch: expected {} arguments : {}, got {}",
+      cl.params.len(),
+      cl.params.iter().map(|p| p.clone()).collect::<Vec<String>>().join(", "),
+      arg_vals.len()
     ));
   }
-
   let call_env = Rc::new(EnvData {
     bindings: RefCell::new(HashMap::new()),
     parent: Some(cl.env.clone()),
@@ -159,8 +158,26 @@ fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns:
     call_env.bindings.borrow_mut().insert(param.clone(), arg);
   }
 
-  do_eval(&cl.body, &call_env, native_fns)
+
+  let res = do_eval(&cl.body, &call_env, native_fns)?;
+
+
+  match res.as_ref(){
+    Value::ReturnValue{val}=>{
+      match &cl.body{
+        Expr::ReturnCmd(_) | Expr::Conditional(_, _, _) | Expr::Let(_, _, _) =>{
+          Ok(v(Value::ReturnValue { val: val.clone() }))
+        },
+        _=>panic!("return value not expected")
+      }
+    },
+    _=>Ok(res)
+  }
+
 }
+
+
+
 
 pub fn do_eval(
   
@@ -289,46 +306,54 @@ pub fn do_eval(
       }
 
       Expr::Let(bindr, val_expr, body) => {
-          // Make a new environment frame we can mutate in place
-          let final_env = Rc::new(EnvData {
-              bindings: RefCell::new(HashMap::new()),
-              parent: Some(env.clone()),
-          });
+        // Make a new environment frame we can mutate in place
+        let final_env = Rc::new(EnvData {
+            bindings: RefCell::new(HashMap::new()),
+            parent: Some(env.clone()),
+        });
 
-          // 1) Predeclare all bound identifiers as Undefined to allow self-reference during RHS evaluation
-          {
-            let mut predeclared: Vec<String> = Vec::new();
-            collect_pattern_idents(bindr.as_ref(), &mut predeclared);
-            let mut frame = final_env.bindings.borrow_mut();
-            for name in predeclared {
-              frame.insert(name, v(Value::Undefined));
-            }
+        // 1) Predeclare all bound identifiers as Undefined to allow self-reference during RHS evaluation
+        {
+          let mut predeclared: Vec<String> = Vec::new();
+          collect_pattern_idents(bindr.as_ref(), &mut predeclared);
+          let mut frame = final_env.bindings.borrow_mut();
+          for name in predeclared {
+            frame.insert(name, v(Value::Undefined));
           }
+        }
 
-          // 2) Evaluate the RHS in this environment
-          let rhs_val: Rc<Value> = match val_expr.as_ref() {
-              Expr::Fn(params, f_body) => {
-                  // Closure captures the final_env so recursive calls see the binding
-                  v(Value::Closure(Closure {
-                      params: params.clone(),
-                      body: *f_body.clone(),
-                      env: final_env.clone(),
-                  }))
-              }
-              _ => match do_eval(val_expr, &final_env, native_fns.clone()){
-                Ok(v)=>v,
-                Err(e)=>{
+        // 2) Evaluate the RHS in this environment
+        let rhs_val: Rc<Value> = match val_expr.as_ref() {
+            Expr::Fn(params, f_body) => {
+                // Closure captures the final_env so recursive calls see the binding
+                v(Value::Closure(Closure {
+                    params: params.clone(),
+                    body: *f_body.clone(),
+                    env: final_env.clone(),
+                }))
+            }
+            _ => match do_eval(val_expr, &final_env, native_fns.clone()){
 
-                  return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+              Ok(val)=>{
+                match val.as_ref(){
+                  Value::ReturnValue{val}=>{
+                    return Ok(val.clone());
+                  },
+                  _=>val,
                 }
               },
-          };
+              Err(e)=>{
 
-          // 3) Bind pattern from RHS value
-          bind_pattern(bindr.as_ref(), &rhs_val, &final_env)?;
+                return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+              }
+            },
+        };
 
-          // 4) Evaluate the body with updated environment
-          do_eval(body, &final_env, native_fns)
+        // 3) Bind pattern from RHS value
+        bind_pattern(bindr.as_ref(), &rhs_val, &final_env)?;
+
+        // 4) Evaluate the body with updated environment
+        do_eval(body, &final_env, native_fns)
       }
       Expr::Array(arr) =>{
         let mut narr: Vec<Rc<Value>> = Vec::new();
@@ -539,6 +564,9 @@ pub fn do_eval(
           }
           _ => Err(format!("unknown operator: {:?}", op)),
         }
+      },
+      Expr::ReturnCmd(block) => {
+        do_eval(block, env, native_fns)
       },
   }
 }

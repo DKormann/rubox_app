@@ -20,6 +20,7 @@ pub enum Expr {
   Binop(Box<Expr>, String, Box<Expr>),
   Unop(String, Box<Expr>),
   Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
+  ReturnCmd(Box<Expr>), // used for if else that can produce a return
 }
 
 
@@ -50,7 +51,7 @@ pub enum Value {
   Undefined,
   Builtin(Builtin),
   NativeFn(String),
-  
+  ReturnValue{val:VRef},
 }
 use std::fmt;
 
@@ -69,6 +70,7 @@ impl fmt::Debug for Value{
       Closure(cl) => write!(f, "Closure({:?})", cl),
       Builtin(builtin) => write!(f, "Builtin({:?})", builtin),
       NativeFn(func) => write!(f, "NativeFn"),
+      ReturnValue{val} => write!(f, "ReturnValue({:?})", val),
 
     }
   }
@@ -341,4 +343,8 @@ pub fn mk_let_chain(lets: Vec<(String, Expr)>, result: Expr) -> Expr {
     body = mk_let(name, value, body);
   }
   body
+}
+
+pub fn mk_block(ret: bool, val: Expr) -> Expr {
+  Expr::ReturnCmd(Box::new(Expr::ReturnCmd(Box::new(val))))
 }

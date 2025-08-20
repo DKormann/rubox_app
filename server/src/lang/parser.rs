@@ -39,7 +39,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     
       let body_pair = inner.next().unwrap();
       let body_expr = match body_pair.as_rule() {
-        Rule::block => build_block_as_function_body(body_pair)?,
+        Rule::block => build_block(body_pair)?,
         _ => build_expr(body_pair)?,
       };
     
@@ -153,7 +153,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
       Ok(current)
     },
 
-    _ => unreachable!("unhandled rule: {:?}", pair.as_rule()),
+    _ => unreachable!("unhandled rule in expr: {:?}", pair.as_rule()),
   }
 }
 
@@ -267,13 +267,13 @@ fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
           }
         );
       }
-      _ => unreachable!("unhandled rule: {:?}", p.as_rule()),
+      _ => unreachable!("unhandled rule in array: {:?}", p.as_rule()),
     }
   }
   Ok(Expr::Array(elems))
 }
 
-fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
+fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
 
   let mut lets: Vec<(Expr, Expr)> = Vec::new();
   let mut result: Option<Expr> = None;
@@ -305,17 +305,22 @@ fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Exp
             let params_pair = f_inner.next().unwrap();                // params
             let params = build_params(params_pair);
             let body_pair = f_inner.next().unwrap();                  // block
-            let body_expr = build_block_as_function_body(body_pair)?;
+            let body_expr = build_block(body_pair)?;
             let init = mk_fn(params, body_expr);
             lets.push((Expr::Var(name), init));
           }
           Rule::if_ => {
-            
+            let mut inner = inner_stmt.into_inner();
+            let cond = build_expr(inner.next().unwrap())?;
+            let then_branch = build_expr(inner.next().unwrap())?;
+            let else_branch = build_expr(inner.next().unwrap())?;
+            lets.push((mk_var(""), mk_conditional(cond, then_branch, else_branch)));
           }
 
           Rule::return_ => {
             let expr_pair = inner_stmt.into_inner().next().unwrap();
-            result = Some(build_expr(expr_pair)?);
+            let expr = build_expr(expr_pair)?;
+            result = Some(Expr::ReturnCmd(Box::new(expr)));
             break;
           }
           _ => unreachable!("unexpected rule inside stmt: {:?}", inner_stmt.as_rule()),
@@ -332,6 +337,39 @@ fn build_block_as_function_body(pair: pest::iterators::Pair<Rule>) -> Result<Exp
   }
   Ok(body)
 }
+
+
+
+
+// #[test]
+// fn test_parse_if_else(){
+//   let code = "(()=>{
+//     if (c) {
+//       return 22;
+//     } else {
+//       return 44;
+//     }
+//   })";
+//   let exp = "(()=>{
+//     let [_ret, _val] = c ? [true, 22] : [true, 44];
+//     _ret ? _val : undefined;
+//   })";
+//   test_parse_equiv(code, exp);
+// }
+
+
+
+// fn build_block_
+
+
+// fn build_if_else_rest(pair: pest::iterators::Pair<Rule>, rest: Expr) -> Result<Expr, pest::error::Error<Rule>> {
+//   let mut inner = pair.into_inner();
+//   let cond = build_expr(inner.next().unwrap())?;
+//   let then_branch = build_expr(inner.next().unwrap())?;
+//   let else_branch = build_expr(inner.next().unwrap())?;
+
+
+
 
 
 fn build_object(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
