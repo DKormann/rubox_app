@@ -246,7 +246,10 @@ use crate::lang::parser::*;
   #[test]
   fn eval_early_return5(){
     
-    test_code_equiv("(()=>{
+
+    println!()
+    test_code_equiv(
+      "(()=>{
 
       if (true){
         if (true){

@@ -310,7 +310,6 @@ pub fn do_eval(
             parent: Some(env.clone()),
         });
 
-        // 1) Predeclare all bound identifiers as Undefined to allow self-reference during RHS evaluation
         {
           let mut predeclared: Vec<String> = Vec::new();
           collect_pattern_idents(bindr.as_ref(), &mut predeclared);
@@ -320,37 +319,32 @@ pub fn do_eval(
           }
         }
 
-        // 2) Evaluate the RHS in this environment
         let rhs_val: Rc<Value> = match val_expr.as_ref() {
-            Expr::Fn(params, f_body) => {
-                // Closure captures the final_env so recursive calls see the binding
-                v(Value::Closure(Closure {
-                    params: params.clone(),
-                    body: *f_body.clone(),
-                    env: final_env.clone(),
-                }))
-            }
-            _ => match do_eval(val_expr, &final_env, native_fns.clone()){
+          Expr::Fn(params, f_body) => {
+              v(Value::Closure(Closure {
+                  params: params.clone(),
+                  body: *f_body.clone(),
+                  env: final_env.clone(),
+              }))
+          }
+          _ => match do_eval(val_expr, &final_env, native_fns.clone()){
 
-              Ok(val)=>{
-                match val.as_ref(){
-                  Value::ReturnValue{val}=>{
-                    return Ok(val.clone());
-                  },
-                  _=>val,
-                }
-              },
-              Err(e)=>{
-
-                return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+            Ok(val)=>{
+              match val.as_ref(){
+                Value::ReturnValue{val: inner}=>{
+                  return Ok(v(Value::ReturnValue{ val: inner.clone() }));
+                },
+                _=>val,
               }
             },
+            Err(e)=>{
+
+              return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+            }
+          },
         };
 
-        // 3) Bind pattern from RHS value
         bind_pattern(bindr.as_ref(), &rhs_val, &final_env)?;
-
-        // 4) Evaluate the body with updated environment
         do_eval(body, &final_env, native_fns)
       }
       Expr::Array(arr) =>{
@@ -477,7 +471,6 @@ pub fn do_eval(
       },
       Expr::Conditional(c,t,e) => {
         let v = do_eval(c, env, native_fns.clone())?;
-
         if cast_bool(&v) { do_eval(t, env, native_fns.clone()) } else { do_eval(e, env, native_fns) }
       },
       Expr::Unop(op, expr) => {

@@ -274,7 +274,7 @@ fn build_array(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::E
   Ok(Expr::Array(elems))
 }
 
-fn build_block(pair: pest::iterators::Pair<Rule>, is_function_body: bool) -> Result<Expr, pest::error::Error<Rule>> {
+fn build_block(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Error<Rule>> {
 
   let mut lets: Vec<(Expr, Expr)> = Vec::new();
   let mut result: Option<Expr> = None;
@@ -306,7 +306,7 @@ fn build_block(pair: pest::iterators::Pair<Rule>, is_function_body: bool) -> Res
             let params_pair = f_inner.next().unwrap();                // params
             let params = build_params(params_pair);
             let body_pair = f_inner.next().unwrap();                  // block
-            let body_expr = build_block(body_pair, true)?;
+            let body_expr = build_block(body_pair)?;
             let init = mk_fn(params, body_expr);
             lets.push((Expr::Var(name), init));
           }
@@ -334,13 +334,7 @@ fn build_block(pair: pest::iterators::Pair<Rule>, is_function_body: bool) -> Res
     }
   }
 
-  let mut body = result.unwrap_or_else(||
-    if is_function_body{
-      mk_undefined()
-    }else{
-      mk_undefined()
-    });
-
+  let mut body = result.unwrap_or_else(|| mk_undefined());
   for (bindr, init) in lets.into_iter().rev() {
     body = mk_let_gen(bindr, init, body);
   }
