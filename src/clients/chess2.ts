@@ -38,7 +38,7 @@ let chessCtx : ServerApp <ChessContext> = {
       {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, null, null,
       null, null, null, null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null,
-      null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, {type:"pawnmoveddouble", color:"black"}, {type:"pawnmoved", color:"white"}, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null,
       {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, null, null,
       {type:"rook", color:"black"}, {type:"knight", color:"black"}, {type:"bishop", color:"black"}, {type:"queen", color:"black"}, {type:"king", color:"black"}, {type:"bishop", color:"black"}, {type:"knight", color:"black"}, {type:"rook", color:"black"}, null, null,
@@ -64,14 +64,12 @@ let chessCtx : ServerApp <ChessContext> = {
     function hasKing(board:Board, color:"white"|"black"):boolean{
       return board.filter((p, i)=> p && p.type == "king" && p.color == color).length > 0
     }
-
+    
+    let left = 1
+    let right = -left
     function directions(p:Piece):number[]{
       let up = p.color == "white" ? 10 : -10;
       let down = -up;
-      let left = 1
-      let right = -left
-
-
 
       return p.type == "pawn" ? [up, up+up] :
         p.type == "pawnmoved" || p.type == "pawnmoveddouble" ? [up] :
@@ -100,9 +98,21 @@ let chessCtx : ServerApp <ChessContext> = {
           return [...acc, ...getRay(pos, dir)]
         }, [])
       }
-      return piece ? directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null) : []
-    }
+      let moves =  piece ? directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null) : []
+      if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble"){
 
+        let passants = [left,right]
+        .map((d) => pos + d)
+        .filter((t) => {
+          let target = getPieceAt(board,t);
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {return true}
+          return false
+        })
+        .map((t)=>t+(piece.color == "white" ? 10 : -10))
+        return [...moves, ...passants]
+      }
+      return moves
+    }
 
     function makeMove(m:Match, move:Move):[string, Match]{
 
@@ -115,19 +125,38 @@ let chessCtx : ServerApp <ChessContext> = {
       let dist = move.end - move.start
 
       let ptype = (piece.type == "pawn") ?
-          ((dist == 2 || dist == -2) ? "pawnmoveddouble" : "pawnmoved") :
+          ((dist == 20 || dist == -20) ? "pawnmoveddouble" : "pawnmoved") :
         (piece.type == "king") ? "kingmoved" :
         (piece.type == "rook") ? "rookmoved" :
         piece.type
+      
+      
 
       let newBoard = arrSet(arrSet(m.board, move.start, null), move.end, {...piece, type:ptype})
+      if  (!options.includes(move.end)) {return ["Invalid move", m]}
 
 
-      return (!options.includes(move.end)) ? ["Invalid move", m] : ["", {
+      let resMatch: Match = {
         board: newBoard,
         turn: m.turn == "white" ? "black" : "white",
         winner: null
-      }]
+      }
+
+      if (ptype == "pawnmoved"){
+        if (dist % 10 != 0){
+          let passant = move.end % 10 + Math.floor(move.start / 10)
+          let target = getPieceAt(resMatch.board, passant)
+          let pboard = arrSet(resMatch.board, passant, null)
+          return ["", {...resMatch, board: pboard}]
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
+          }
+
+        }        
+      }
+
+      return ["err", m]
+      // return ["", resMatch]
+
     }
     
 
@@ -168,8 +197,8 @@ let pieceImages = {
   "king": "K",
   "kingmoved" :"K",
   "rookmoved": "R",
-  "pawnmoved": "p",
-  "pawnmoveddouble": "p"
+  "pawnmoved": "p_",
+  "pawnmoveddouble": "p'"
 }
 
 let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6

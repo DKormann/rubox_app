@@ -120,6 +120,14 @@ pub enum Builtin {
   DBHas,
   DBDelete,
   DBUpdate,
+  Math,
+  MathAbs,
+  MathCeil,
+  MathFloor,
+  MathRound,
+  MathMax,
+  MathMin,
+  MathRandom,
 }
 
 #[derive(Clone, Debug, PartialEq)]

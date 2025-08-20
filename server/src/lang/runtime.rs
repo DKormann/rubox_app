@@ -124,8 +124,10 @@ fn lookup(env: &EnvRef, name: &str) -> Option<VRef> {
 }
 
 
-pub fn eval(expr: &Expr)->Result<VRef, String>{
-  do_eval(expr,&env_extend(None),|_, _| Err("native function not found".into()))
+pub fn eval(expr: &Expr)->Result<(VRef, Vec<String>), String>{
+  let mut logs = vec![];
+  let res = do_eval(expr, &env_extend(None), |_, _| Err("native function not found".into()), &mut logs)?;
+  Ok((res, logs))
 }
 
 pub fn cast_bool(val: &Value)->bool{
@@ -142,7 +144,13 @@ pub fn cast_bool(val: &Value)->bool{
   }
 }
 
-fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<VRef, String>{              if cl.params.len() != arg_vals.len() {
+fn run_closure(
+  cl: &Closure,
+  arg_vals: Vec<Rc<Value>>,
+  env: &EnvRef,
+  native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone,
+  logs: &mut Vec<String>
+) -> Result<VRef, String>{              if cl.params.len() != arg_vals.len() {
     return Err(format!(
       "arity mismatch: expected {} arguments : {}, got {}",
       cl.params.len(),
@@ -159,7 +167,7 @@ fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns:
   }
 
 
-  let res = do_eval(&cl.body, &call_env, native_fns)?;
+  let res = do_eval(&cl.body, &call_env, native_fns, logs)?;
 
   match res.as_ref(){
     Value::ReturnValue{val}=>{
@@ -178,10 +186,10 @@ fn run_closure(cl: &Closure, arg_vals: Vec<Rc<Value>>, env: &EnvRef, native_fns:
 
 
 pub fn do_eval(
-  
   expr: &Expr,
   env: &EnvRef,
-  native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone
+  native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone,
+  logs: &mut Vec<String>
 ) -> Result<VRef, String> {
   match expr {
   Expr::Var(name) => lookup(env, name)
@@ -199,16 +207,16 @@ pub fn do_eval(
 
       Expr::Call(func_expr, arg_exprs) => {
         // Evaluate the function expression.
-        let fun = do_eval(func_expr, env, native_fns.clone())?;
+        let fun = do_eval(func_expr, env, native_fns.clone(), logs)?;
 
         let mut arg_vals = Vec::with_capacity(arg_exprs.len());
         for a in arg_exprs {
-          arg_vals.push(do_eval(a, env, native_fns.clone())?);
+          arg_vals.push(do_eval(a, env, native_fns.clone(), logs)?);
         }
 
         match fun.as_ref() {
           Value::Closure(cl) => {
-            run_closure(cl, arg_vals, env, native_fns)
+            run_closure(cl, arg_vals, env, native_fns, logs)
           }
           Value::Builtin(builtin)=>{
             match builtin {
@@ -254,7 +262,7 @@ pub fn do_eval(
                         for (i,v) in self_arr.iter().enumerate() {
                           // let res = run_closure(cl, vec![v.clone()], env, native_fns.clone())?;
                           let args = if (cl.params.len() == 1) {vec![v.clone()]} else {vec![v.clone(), Rc::new(Value::Int(i as i32))]};
-                          let res = run_closure(cl, args, env, native_fns.clone())?;
+                          let res = run_closure(cl, args, env, native_fns.clone(), logs)?;
                           narr.push(res);
                         }
                       }
@@ -269,7 +277,7 @@ pub fn do_eval(
                     match fun.as_ref() {
                       Value::Closure(cl)=>{
                         for v in self_arr {
-                          let res = run_closure(cl, vec![v.clone()], env, native_fns.clone())?;
+                          let res = run_closure(cl, vec![v.clone()], env, native_fns.clone(), logs)?;
                           if cast_bool(&res) {
                             narr.push(v.clone());
                           }
@@ -288,6 +296,25 @@ pub fn do_eval(
                     Ok(v(Value::Boolean(found)))
                   }
                   _=>return Err(format!("method {:?} not found on array", method))
+                }
+              },
+              Builtin::MathAbs | Builtin::MathCeil | Builtin::MathFloor | Builtin::MathRound => {
+                let val = arg_vals.get(0).ok_or(format!("attempted to call math function with no value"))?;
+                match val.as_ref() {
+                  Value::Int(i)=>match builtin {
+                    Builtin::MathAbs=>Ok(v(Value::Int(i.abs()))),
+                    Builtin::MathCeil=>Ok(v(Value::Int(*i))),
+                    Builtin::MathFloor=>Ok(v(Value::Int(*i))),
+                    _=>unreachable!()
+                  },
+                  Value::Float(f)=>match builtin {
+                    Builtin::MathAbs=>Ok(v(Value::Float(f.abs()))),
+                    Builtin::MathCeil=>Ok(v(Value::Float(f.ceil()))),
+                    Builtin::MathFloor=>Ok(v(Value::Int(f.floor() as i32))),
+                    Builtin::MathRound=>Ok(v(Value::Float(f.round()))),
+                    _=>unreachable!()
+                  },
+                  _=>unreachable!()
                 }
               },
               _=>return Err("attempted to call Object.keys on a non-object value".into())
@@ -327,7 +354,7 @@ pub fn do_eval(
                   env: final_env.clone(),
               }))
           }
-          _ => match do_eval(val_expr, &final_env, native_fns.clone()){
+          _ => match do_eval(val_expr, &final_env, native_fns.clone(), logs){
 
             Ok(val)=>{
               match val.as_ref(){
@@ -345,18 +372,18 @@ pub fn do_eval(
         };
 
         bind_pattern(bindr.as_ref(), &rhs_val, &final_env)?;
-        do_eval(body, &final_env, native_fns)
+        do_eval(body, &final_env, native_fns, logs)
       }
       Expr::Array(arr) =>{
         let mut narr: Vec<Rc<Value>> = Vec::new();
         for elem in arr {
           match elem {
             ArrElem::Expr(e) => {
-              let val = do_eval(e,env,native_fns.clone())?;
+              let val = do_eval(e,env,native_fns.clone(), logs)?;
               narr.push(val);
             },
             ArrElem::Spread(e) => {
-              let val = do_eval(e,env,native_fns.clone())?;
+              let val = do_eval(e,env,native_fns.clone(), logs)?;
               match val.as_ref() {
                 Value::Array(arr) => {
                   for v in arr {
@@ -375,11 +402,11 @@ pub fn do_eval(
           for elem in obj_expr {
             match elem {
               ObjElem::Expr((key,value)) => {
-                let val = do_eval(value,env,native_fns.clone())?;
+                let val = do_eval(value,env,native_fns.clone(), logs)?;
                 obj.insert(key.clone(), val);
               },
               ObjElem::Spread(e) => {
-                let val = do_eval(e,env,native_fns.clone())?;
+                let val = do_eval(e,env,native_fns.clone(), logs)?;
                 match val.as_ref() {
                   Value::Object(obj_map) => {
                     for (k,v_ref) in obj_map {
@@ -396,8 +423,8 @@ pub fn do_eval(
           Ok(v(Value::Object(obj)))
       }
       Expr::Index(arr, idx)=> {
-        let arr_val = do_eval(arr,env,native_fns.clone())?;
-        let idx_val = do_eval(idx,env,native_fns.clone())?;
+        let arr_val = do_eval(arr,env,native_fns.clone(), logs)?;
+        let idx_val = do_eval(idx,env,native_fns.clone(), logs)?;
         match arr_val.as_ref() {
           Value::Array(items) => {
             use std::convert::TryFrom;
@@ -411,7 +438,7 @@ pub fn do_eval(
         }
       },
       Expr::Access(primary, prop)=> {
-        let primary_val = do_eval(primary,env,native_fns.clone())?;
+        let primary_val = do_eval(primary,env,native_fns.clone(), logs)?;
         match primary_val.as_ref() {
           Value::Object(obj) => {
             obj.get(prop)
@@ -455,6 +482,16 @@ pub fn do_eval(
                 "from" => Ok(v(Value::Builtin(Builtin::ArrayFrom))),
                 _=>return Err(format!("property {} not found on array", prop))
               },
+              Builtin::Math => match prop.as_str() {
+                "abs" => Ok(v(Value::Builtin(Builtin::MathAbs))),
+                "ceil" => Ok(v(Value::Builtin(Builtin::MathCeil))),
+                "floor" => Ok(v(Value::Builtin(Builtin::MathFloor))),
+                "round" => Ok(v(Value::Builtin(Builtin::MathRound))),
+                "max" => Ok(v(Value::Builtin(Builtin::MathMax))),
+                "min" => Ok(v(Value::Builtin(Builtin::MathMin))),
+                "random" => Ok(v(Value::Builtin(Builtin::MathRandom))),
+                _=>return Err(format!("property {} not found on math", prop))
+              },
               Builtin::DB => match prop.as_str() {
                 "get" => Ok(v(Value::Builtin(Builtin::DBGet))),
                 "set" => Ok(v(Value::Builtin(Builtin::DBSet))),
@@ -470,11 +507,11 @@ pub fn do_eval(
         }
       },
       Expr::Conditional(c,t,e) => {
-        let v = do_eval(c, env, native_fns.clone())?;
-        if cast_bool(&v) { do_eval(t, env, native_fns.clone()) } else { do_eval(e, env, native_fns) }
+        let v = do_eval(c, env, native_fns.clone(), logs)?;
+        if cast_bool(&v) { do_eval(t, env, native_fns.clone(), logs) } else { do_eval(e, env, native_fns, logs) }
       },
       Expr::Unop(op, expr) => {
-        let val = do_eval(expr, env, native_fns.clone())?;
+        let val = do_eval(expr, env, native_fns.clone(), logs)?;
         match op.as_str() {
           "!" => Ok(v(Value::Boolean(!cast_bool(&val)))),
           "-" => Ok(v(Value::Int(-i32::try_from(val.as_ref()).map_err(|e| format!("int error: {:?}", e))?))),
@@ -485,8 +522,8 @@ pub fn do_eval(
       Expr::Binop(left, op, right) => {
 
         // Evaluate operands
-        let lv = do_eval(left, env, native_fns.clone())?;
-        let rv = do_eval(right, env, native_fns.clone())?;
+        let lv = do_eval(left, env, native_fns.clone(), logs)?;
+        let rv = do_eval(right, env, native_fns.clone(), logs)?;
 
         match op.as_str() {
           "+" => {
@@ -557,11 +594,12 @@ pub fn do_eval(
         }
       },
       Expr::ReturnCmd(block) => {
-        let inner = do_eval(block, env, native_fns.clone())?;
+        let inner = do_eval(block, env, native_fns.clone(), logs)?;
         match inner.as_ref() {
           Value::ReturnValue { .. } => Ok(inner),
           _ => Ok(v(Value::ReturnValue { val: inner.clone() })),
         }
       },
+    }
   }
-}
+

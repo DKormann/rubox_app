@@ -97,8 +97,10 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Result<Expr, pest::error::Er
     Rule::ident => {
       let res = match pair.as_str(){
         // "DB"=>Expr::Value(Box::new(Value::Builtin(Builtin::DB))),
-        // "Object" =>Expr::Value(Box::new(Value::Builtin(Builtin::Object))),
-        // "Array" =>Expr::Value(Box::new(Value::Builtin(Builtin::Array))),
+        "Object" =>Expr::Value(Box::new(Value::Builtin(Builtin::Object))),
+        "Array" =>Expr::Value(Box::new(Value::Builtin(Builtin::Array))),
+        "Math" =>Expr::Value(Box::new(Value::Builtin(Builtin::Math))),
+
         _=>Expr::Var(pair.as_str().to_string()),
       };
       Ok(res)

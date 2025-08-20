@@ -18,6 +18,6 @@ pub enum RuntimeError {
 
 pub fn runcode(code:&str) -> Result<String, RuntimeError>{
   let ast = parser::parse(code).map_err(|e| RuntimeError::ParseError(e.to_string()))?;
-  let result = runtime::eval(&ast).map_err(|e| RuntimeError::RuntimeError(e))?;
-  Ok(readback::read_back(&result))
+  let (result, logs) = runtime::eval(&ast).map_err(|e| RuntimeError::RuntimeError(e))?;
+  Ok((readback::read_back(&result)))
 }

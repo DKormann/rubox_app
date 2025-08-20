@@ -30,8 +30,9 @@ use crate::lang::parser::*;
   fn test_code_equiv(a:&str,b:&str){
     let ast_a = crate::parse(a).expect("parse failed");
     let ast_b = crate::parse(b).expect("parse failed");
-    let res_a = runtime::eval(&ast_a).expect("eval failed");
-    let res_b = runtime::eval(&ast_b).expect("eval failed");
+    let (res_a, logs_a) = runtime::eval(&ast_a).expect("eval failed");
+    let (res_b, logs_b) = runtime::eval(&ast_b).expect("eval failed");
+
     assert_eq!(res_a, res_b);
   }
 
@@ -247,7 +248,7 @@ use crate::lang::parser::*;
   fn eval_early_return5(){
     
 
-    println!()
+
     test_code_equiv(
       "(()=>{
 
@@ -306,6 +307,24 @@ use crate::lang::parser::*;
 
 
 
+  #[test]
+  fn eval_math_abs(){
+    test_code_equiv("Math.abs(-1)", "1");
+    test_code_equiv("Math.abs(1)", "1");
+    test_code_equiv("Math.abs(0)", "0");
+    test_code_equiv("Math.abs(1.5)", "1.5");
+    test_code_equiv("Math.abs(-1.5)", "1.5");
+    test_code_equiv("Math.abs(1.5)", "1.5");
+  }
+
+  #[test]
+  fn eval_math_floor(){
+    test_code_equiv("Math.floor(1.5)", "1");
+    test_code_equiv("Math.floor(-1.5)", "-2");
+    test_code_equiv("Math.floor(0)", "0");
+    test_code_equiv("Math.floor(1.5)", "1");
+    test_code_equiv("Math.floor(-1.5)", "-2");
+  }
 
 
 

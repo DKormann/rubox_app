@@ -172,7 +172,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
   let finast = Expr::Call(Box::new(lamex), vec![ctx_ex, argex]);
 
-
+  let mut logs = vec![];
 
 
   let res = do_eval(&finast,
@@ -198,7 +198,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
         let val: Value = match ctx.db.store().key().find(key){
           Some(store) => {
             let ast = parse(&store.content).map_err(|e| e.to_string())?;
-            let res = eval(&ast)?;
+            let (res,logs) = eval(&ast)?;
             (*res).clone()
           },
           None => Value::Null,
@@ -209,13 +209,15 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
       (_, _) => return Err("function not found".to_string())
     }
-  })?;
+  }, &mut logs)?;
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
-  log::info!("inserting result {} for {}", key, ctx.sender.to_u256());
-
+  let res = Value::Array(vec![
+    res.into(),
+    Value::String(logs.join("\n")).into()
+  ]);
 
   let item  = Store{
     key:key,
