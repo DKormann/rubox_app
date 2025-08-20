@@ -128,6 +128,7 @@ pub enum Builtin {
   MathMax,
   MathMin,
   MathRandom,
+  ConsoleLog,
 }
 
 #[derive(Clone, Debug, PartialEq)]

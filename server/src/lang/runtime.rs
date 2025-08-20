@@ -13,6 +13,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use crate::lang::ast::*;
+use crate::lang::readback::read_back;
 use crate::Store;
 
 fn v(val: Value) -> VRef {
@@ -110,9 +111,11 @@ fn cmp_bools(a: bool, b: bool, op: &str) -> Result<VRef, String> {
 pub fn env_extend(parent: Option<EnvRef>) -> EnvRef {
   Rc::new(EnvData {
   bindings: RefCell::new(HashMap::new()),
-  parent,
+  parent: parent.or_else(|| Some(get_std())),
   })
 }
+
+
 
 
 fn lookup(env: &EnvRef, name: &str) -> Option<VRef> {
@@ -124,8 +127,13 @@ fn lookup(env: &EnvRef, name: &str) -> Option<VRef> {
 }
 
 
+
+
+
 pub fn eval(expr: &Expr)->Result<(VRef, Vec<String>), String>{
   let mut logs = vec![];
+
+
   let res = do_eval(expr, &env_extend(None), |_, _| Err("native function not found".into()), &mut logs)?;
   Ok((res, logs))
 }
@@ -184,6 +192,22 @@ fn run_closure(
 
 
 
+pub fn get_std()->EnvRef{
+  let std = Rc::new(EnvData {
+    bindings: RefCell::new(HashMap::from_iter(vec![
+      ("console".into(), v(Value::Object(HashMap::from_iter(vec![("log".into(), v(Value::Builtin(Builtin::ConsoleLog)))]))))
+    ])),
+    parent: None,
+  });
+  std
+}
+
+
+pub fn eval_native(expr: &Expr, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<(VRef, Vec<String>), String>{
+  let mut logs = vec![];
+  let res = do_eval(expr, &env_extend(None), native_fns, &mut logs)?;
+  Ok((res, logs))
+}
 
 pub fn do_eval(
   expr: &Expr,
@@ -233,7 +257,7 @@ pub fn do_eval(
                       _=>return Err("attempted to call Object.keys on a non-object value".into())
                     }
                   }
-                  _=>return Err("attempted to call Object.keys on a non-object value".into())
+                  _=>return Err("attempted to call Object.keys on a nothing".into())
                 }
                 Ok(v(Value::Array(keys)))
               },
@@ -317,7 +341,12 @@ pub fn do_eval(
                   _=>unreachable!()
                 }
               },
-              _=>return Err("attempted to call Object.keys on a non-object value".into())
+              Builtin::ConsoleLog=>{
+                let val = arg_vals.get(0).ok_or(format!("attempted to call console.log with no value"))?;
+                logs.push(read_back(val));
+                Ok(v(Value::Null))
+              },
+              _=>return Err(format!("not implemented: {:?}", builtin))
             }
           },
           Value::NativeFn(func)=>{
@@ -523,11 +552,11 @@ pub fn do_eval(
 
         // Evaluate operands
         let lv = do_eval(left, env, native_fns.clone(), logs)?;
-        let rv = do_eval(right, env, native_fns.clone(), logs)?;
+        let rv = do_eval(right, env, native_fns.clone(), logs);
 
         match op.as_str() {
           "+" => {
-            match (lv.as_ref(), rv.as_ref()) {
+            match (lv.as_ref(), rv?.as_ref()) {
               (Value::Int(a), Value::Int(b)) => Ok(v(Value::Int(a + b))),
               (Value::Float(a), Value::Float(b)) => Ok(v(Value::Float(a + b))),
               (Value::String(a), Value::String(b)) => Ok(v(Value::String(format!("{}{}", a, b)))),
@@ -538,6 +567,7 @@ pub fn do_eval(
           }
           "-" | "*" | "/" | "%" => {
             // Coerce numeric pairs (int/float)
+            let rv = rv?;
             let as_float = match (lv.as_ref(), rv.as_ref()) {
               (Value::Int(a), Value::Int(b)) => (Some(*a as f64), Some(*b as f64)),
               (Value::Int(a), Value::Float(b)) => (Some(*a as f64), Some(*b)),
@@ -546,6 +576,7 @@ pub fn do_eval(
               _ => (None, None),
             };
             if let (Some(a), Some(b)) = as_float {
+
               // If both were Ints, prefer Int results when exact
               if let (Value::Int(ai), Value::Int(bi)) = (lv.as_ref(), rv.as_ref()) {
                 match op.as_str() {
@@ -568,12 +599,12 @@ pub fn do_eval(
             }
           }
 
-          "||" =>Ok(if cast_bool(&lv ) { lv } else { rv } .clone()),
-          "&&" =>Ok(if cast_bool(&lv ) { rv } else { lv } .clone()),
-          "??" =>Ok(match lv.as_ref() {Value::Null | Value::Undefined => rv, _ => lv,}.clone()),
+          "||" =>Ok(if cast_bool(&lv ) { lv } else { rv? } .clone()),
+          "&&" =>Ok(if cast_bool(&lv ) { rv? } else { lv } .clone()),
+          "??" =>Ok(match lv.as_ref() {Value::Null | Value::Undefined => rv?, _ => lv,}.clone()),
 
           "==" | "!=" | ">" | "<" | ">=" | "<=" => {
-            let res = match (lv.as_ref(), rv.as_ref(), op.as_str()) {
+            let res = match (lv.as_ref(), rv?.as_ref(), op.as_str()) {
               // numeric comparisons (coerce to float)
               (Value::Int(a), Value::Int(b), op) => cmp_numbers(*a as f64, *b as f64, op),
               (Value::Int(a), Value::Float(b), op) => cmp_numbers(*a as f64, *b, op),

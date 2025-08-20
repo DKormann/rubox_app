@@ -125,6 +125,8 @@ use crate::lang::parser::*;
     test_code_equiv("null ? 22 : 33" , "33");
     test_code_equiv("!null ? 22 : 33" , "22");
 
+    test_code_equiv("null && null.x", "null");
+
   }
 
 
@@ -251,7 +253,6 @@ use crate::lang::parser::*;
 
     test_code_equiv(
       "(()=>{
-
       if (true){
         if (true){
           return 22;
@@ -275,6 +276,23 @@ use crate::lang::parser::*;
       }
     })()", "2");
   }
+
+  fn eval_effect_block(){
+    test_code_equiv("(()=>{
+      let log = (x)=>console.log(x);
+      if (true){
+        let a = 2
+        console.log(2)
+        console.log(3)
+        if (true){
+          let a = 3
+        }
+        return a;
+      }
+    })()", "2");
+  }
+
+
 
 
 

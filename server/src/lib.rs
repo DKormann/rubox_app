@@ -19,7 +19,7 @@ mod lang;
 
 use lang::parser::*;
 
-use crate::lang::{ast::{mk_call, mk_object, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval}};
+use crate::lang::{ast::{mk_call, mk_object, mk_string, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval, eval_native}};
 
 #[table(name = lambda, public)]
 pub struct Lambda{
@@ -149,15 +149,8 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   by_host_and_app.filter((ctx.sender, app)).next().ok_or("app not installed on self")?;
 
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
-
-  
-
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
-
   let setup = app.setup;
-
-  
-
 
   let lamex = parse(&lam.code).map_err(|e| e.to_string())?;
   let argex = parse(&arg).map_err(|e| e.to_string())?;
@@ -172,12 +165,8 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
   let finast = Expr::Call(Box::new(lamex), vec![ctx_ex, argex]);
 
-  let mut logs = vec![];
 
-
-  let res = do_eval(&finast,
-    &Rc::new(EnvData{bindings: RefCell::new(HashMap::new()), parent: None,}),
-    |fname: &str, args: Vec<Value>|{
+  let native_fns = |fname: &str, args: Vec<Value>|{
 
     match (fname, args.as_slice()){
       ("DBSet", [Value::Boolean(from_me), Value::String(key), content]) => {
@@ -209,14 +198,17 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
       (_, _) => return Err("function not found".to_string())
     }
-  }, &mut logs)?;
+  };
+
+
+  let (res, logs) = eval_native(&finast, native_fns)?;
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
   let res = Value::Array(vec![
     res.into(),
-    Value::String(logs.join("\n")).into()
+    Value::Array(logs.iter().map(|l| Rc::new(Value::String(l.clone()))).collect()).into()
   ]);
 
   let item  = Store{

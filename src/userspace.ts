@@ -129,11 +129,16 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
               let val = storeCache.get(key)
               if (val == "undefined") lamQueue.get(key)?.resolve(undefined)
               else {
+
                 let [res, logs] = JSON.parse(val)
-                console.log("remote logs:",logs)
+                if (logs){
+                  console.log("remote logs:")
+                  logs.forEach(l=>console.log(JSON.parse(l)))
+                }
                 lamQueue.get(key)?.resolve(res)
               }
             }catch(e){
+
               lamQueue.get(key)?.resolve(null)
             }
           }

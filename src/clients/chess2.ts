@@ -82,6 +82,7 @@ let chessCtx : ServerApp <ChessContext> = {
 
     function getLegalMoves(board:Board, pos:Pos):Pos[]{
       let piece = getPieceAt(board, pos)
+      if (!piece) {return []}
       if (piece.type == "rook" || piece.type == "bishop" || piece.type == "queen" || piece.type == "rookmoved"){
 
         let getRay = (pos:Pos, dir:number):Pos[]=>{
@@ -98,8 +99,19 @@ let chessCtx : ServerApp <ChessContext> = {
           return [...acc, ...getRay(pos, dir)]
         }, [])
       }
-      let moves =  piece ? directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null) : []
       if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble"){
+        let moves =  directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null)
+
+        let up = (piece.color == "white" ? 10 : -10);
+
+        let hits = [left,right]
+        .map((d) => pos + d + up)
+        .filter((t) => {
+          let target = getPieceAt(board,t);
+          return target && target.color != piece.color
+        })
+
+        console.log({hits})
 
         let passants = [left,right]
         .map((d) => pos + d)
@@ -108,13 +120,19 @@ let chessCtx : ServerApp <ChessContext> = {
           if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {return true}
           return false
         })
-        .map((t)=>t+(piece.color == "white" ? 10 : -10))
-        return [...moves, ...passants]
+        .map((t)=>t+up)
+
+        return [...moves, ...passants, ...hits]
       }
-      return moves
+      return directions(piece).map((d)=>pos+d).filter((p)=>{
+        let target = getPieceAt(board, p)
+        return !target || target.color != piece.color
+      })
     }
 
     function makeMove(m:Match, move:Move):[string, Match]{
+
+      
 
       let piece = getPieceAt(m.board, move.start)
       if (!piece) {return ["no piece at start", m]}
@@ -122,9 +140,10 @@ let chessCtx : ServerApp <ChessContext> = {
       if (piece.color != m.turn) {return ["not your turn", m]}
       
       let options = getLegalMoves(m.board, move.start)
+      console.log({options})
       let dist = move.end - move.start
-
-      let ptype = (piece.type == "pawn") ?
+      let npBoard = m.board.map((p)=> p && p.type == "pawnmoveddouble" ? {...p, type: "pawnmoved"} : p)
+      let ptype = (piece.type == "pawn" || piece.type == "pawnmoveddouble") ?
           ((dist == 20 || dist == -20) ? "pawnmoveddouble" : "pawnmoved") :
         (piece.type == "king") ? "kingmoved" :
         (piece.type == "rook") ? "rookmoved" :
@@ -132,7 +151,7 @@ let chessCtx : ServerApp <ChessContext> = {
       
       
 
-      let newBoard = arrSet(arrSet(m.board, move.start, null), move.end, {...piece, type:ptype})
+      let newBoard = arrSet(arrSet(npBoard, move.start, null), move.end, {...piece, type:ptype}) as Board
       if  (!options.includes(move.end)) {return ["Invalid move", m]}
 
 
@@ -142,24 +161,23 @@ let chessCtx : ServerApp <ChessContext> = {
         winner: null
       }
 
+      
+
       if (ptype == "pawnmoved"){
         if (dist % 10 != 0){
-          let passant = move.end % 10 + Math.floor(move.start / 10)
+          let passant = move.end % 10 + Math.floor(move.start / 10) * 10
           let target = getPieceAt(resMatch.board, passant)
+          console.log({target, passant})
           let pboard = arrSet(resMatch.board, passant, null)
-          return ["", {...resMatch, board: pboard}]
           if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
+            return ["", {...resMatch, board: pboard}]
           }
 
         }        
       }
-
-      return ["err", m]
-      // return ["", resMatch]
-
+      return ["", resMatch]
     }
     
-
     return {
       startBoard,
       getLegalMoves,
@@ -283,7 +301,6 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
 
 
   conn.handle(chessCtx).then(({call, users})=>{
-    console.log(call)
 
     call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
       let b:Match = {
@@ -295,7 +312,9 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
 
     })
 
-    call(conn.identity, chessCtx.api.mkMove, [m , {start: 20, end: 30, promo: null}]).then(([err,m])=>{
+    call(conn.identity, chessCtx.api.mkMove, [m , {start: 10, end: 20, promo: null}]).then((resp)=>{
+      console.log("resp", resp)
+      let [err,m] = resp
       console.log(err,m)
       displayBoard(m)
     })
