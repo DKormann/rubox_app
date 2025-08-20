@@ -175,6 +175,16 @@ use crate::lang::parser::*;
     );
   }
 
+  fn test_parse_block_no_return(){
+    let code = "(()=>{ let x = 2})";
+    test_parse(code,
+      mk_fn(vec![],
+        mk_let("x".into(), mk_int(2), mk_undefined())
+      )
+    );
+  }
+
+
 
   #[test]
   fn test_parse_let_in_block_2(){
@@ -249,22 +259,58 @@ use crate::lang::parser::*;
   }
 
 
-  // #[test]
-  // fn test_parse_if_else(){
-  //   let code ="(()=>{
-  //   let x = null;
-  //   if (x) {
-  //     return 22;
-  //   } else {
-  //     return 44;
-  //   }
-  //   })";
-  //   test_parse(code, mk_fn(vec![], mk_let_chain(vec![
-  //     ("x".into(), mk_null()),
-  //     ("".into(), mk_conditional(mk_var("x"), mk_int(22), mk_int(44))),
-  //   ], mk_var("x"))));
-  // }
+  fn test_parse_equiv(a:&str,b:&str){
+    let ast_a = parse(a).expect("parse failed");
+    let ast_b = parse(b).expect("parse failed");
+    assert_eq!(ast_a, ast_b);
+  }
 
 
 
+
+
+  #[test]
+  fn test_parse_if_else(){
+    let code = "(()=>{
+      if (c) {
+        return 22;
+      } else {
+        return 44;
+      }
+    })";
+
+    let exp = "(()=>{
+
+      let [_ret, _val] = c ? [true, 22] : [true, 44];
+      _ret ? _val : undefined;
+
+    })";
+
+    test_parse_equiv(code, exp);
+  }
+
+
+  #[test]
+  fn test_parse_if_else2(){
+    let code = "(()=>{
+      if (c) {
+        return 22;
+      } else {
+        eff();
+      }
+      
+    })";
+
+    test_parse(code,
+      mk_fn(vec![],
+        mk_let_gen(mk_array(vec![mk_var("_ret".into()), mk_var("_val".into())]),
+          mk_conditional(mk_var("c"),
+            mk_array(vec![mk_bool(true), mk_int(22)]), 
+            mk_array(vec![mk_bool(false), mk_call(mk_var("eff"), vec![])]),
+          ),
+          mk_conditional(mk_var("_ret"), mk_var("_val"), mk_undefined())
+        )
+      )
+    )
+  }
 }

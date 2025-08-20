@@ -191,8 +191,64 @@ use crate::lang::parser::*;
       }else{
         return 33;
       }})()", "22");
-    test_code_equiv("(()=>{
 
+  }
+
+  #[test]
+  fn eval_early_return2(){
+
+
+    test_code_equiv("(()=>{
+      
+      let set = (x)=>null;
+
+      if (true){
+        return 22;
+      }else{
+        set(\"no\");
+      }
+      return 33
+      })()", "22");
+
+  }
+
+  #[test]
+  fn eval_early_return3(){
+
+    test_code_equiv("(()=>{
+    let set = (x)=>null;
+
+      if (false){
+        return 22;
+      }else{
+        set(\"no\");
+      }
+      return 33;
+      })()", "33");
+
+  }
+
+  #[test]
+  fn eval_early_return4(){
+    
+    test_code_equiv("(()=>{
+      let set = (x)=>null;
+      if (true){
+        set(\"yes\");
+      }else{
+        return 44;
+      }
+      return 33
+      })()", "33");
+
+
+  
+
+
+    // The following case is intentionally commented out because the JS code inside the
+    // string is fully commented and omits the necessary closing braces, making it invalid.
+    // test_code_equiv("(()=>{
+    //
     // let a = true;
     // if (a) 1 + 2;
     // else {

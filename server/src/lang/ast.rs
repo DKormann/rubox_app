@@ -253,8 +253,16 @@ pub fn mk_int(n: i32) -> Expr {
   Expr::Value(Box::new(Value::Int(n)))
 }
 
+pub fn mk_bool(b: bool) -> Expr {
+  Expr::Value(Box::new(Value::Boolean(b)))
+}
+
 pub fn mk_null() -> Expr {
   Expr::Value(Box::new(Value::Null))
+}
+
+pub fn mk_undefined() -> Expr {
+  Expr::Value(Box::new(Value::Undefined))
 }
 
 #[allow(dead_code)]
