@@ -1,6 +1,7 @@
 import {div} from "../html"
 import { PageComponent } from "../main"
-import { DefaultContext, ServerApp, ServerConnection } from "../userspace"
+import { Writable } from "../store"
+import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
 
 
 type PieceType = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king" | "kingmoved" | "rookmoved" | "pawnmoved" | "pawnmoveddouble"
@@ -38,7 +39,7 @@ let chessCtx : ServerApp <ChessContext> = {
       {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, null, null,
       null, null, null, null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null,
-      null, null, null, null, {type:"pawnmoveddouble", color:"black"}, {type:"pawnmoved", color:"white"}, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null,
       {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, null, null,
       {type:"rook", color:"black"}, {type:"knight", color:"black"}, {type:"bishop", color:"black"}, {type:"queen", color:"black"}, {type:"king", color:"black"}, {type:"bishop", color:"black"}, {type:"knight", color:"black"}, {type:"rook", color:"black"}, null, null,
@@ -215,8 +216,8 @@ let pieceImages = {
   "king": "K",
   "kingmoved" :"K",
   "rookmoved": "R",
-  "pawnmoved": "p_",
-  "pawnmoveddouble": "p'"
+  "pawnmoved": "p",
+  "pawnmoveddouble": "p"
 }
 
 let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6
@@ -233,8 +234,9 @@ let chessBoard = div({class:"chessboard",style:{
 
 let focuspos = 0
 
-let displayBoard = (m:Match)=>{
+let opponentId = new Writable<IdString|null>(null);
 
+let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
 
   chessBoard.innerHTML = ""
 
@@ -254,15 +256,17 @@ let displayBoard = (m:Match)=>{
       bottom: y * boardSize / 8 + "px",
       position: "absolute",
     },
-    onclick: ()=>{
-      let [error, next] = (focuspos == null || focuspos == n) ? [null, m] : chessCtx.loadApp(undefined).makeMove(m, {
+
+    
+    onclick: async ()=>{
+      let move = {
         start: focuspos,
         end: n,
         promo: null
-      })
+      };
+      let [error, next]: [string, Match] = await app.call(opponentId.get(), chessCtx.api.mkMove, [m, move])
       focuspos = focuspos == n ? null : n
-      console.log(error)
-      displayBoard(error ? m : next)
+      displayBoard(error ? m : next, app)
     }})
 
     let piece = m.board[n]
@@ -300,31 +304,34 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
   }
 
 
-  conn.handle(chessCtx).then(({call, users})=>{
+  conn.handle(chessCtx).then((app)=>{
 
-    call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
+
+    opponentId.set(conn.identity);
+
+    app.call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
       let b:Match = {
         board: m,
         turn: "white",
         winner: null
       }
-      displayBoard(b)
+      displayBoard(b, app)
 
     })
 
-    call(conn.identity, chessCtx.api.mkMove, [m , {start: 10, end: 20, promo: null}]).then((resp)=>{
-      console.log("resp", resp)
-      let [err,m] = resp
-      console.log(err,m)
-      displayBoard(m)
-    })
+    // call(conn.identity, chessCtx.api.mkMove, [m , {start: 10, end: 20, promo: null}]).then((resp)=>{
+    //   console.log("resp", resp)
+    //   let [err,m] = resp
+    //   console.log(err,m)
+    //   displayBoard(m)
+    // })
 
   })
 
 
 
 
-  displayBoard(m)
+  // displayBoard(m)
 
   
   let el = div({class:"chess-container"})

@@ -90,8 +90,8 @@ use crate::lang::parser::*;
 
 
   fn test_block_equiv(a:&str,b:&str){
-    let code_a = format!("(()=>{{{}}})()", a);
-    let code_b = format!("(()=>{{{}}})()", b);
+    let code_a = "(()=>{".to_string() + a + "})()";
+    let code_b = "(()=>{".to_string() + b + "})()";
     test_code_equiv(&code_a, &code_b);
   }
 
@@ -323,6 +323,13 @@ use crate::lang::parser::*;
     test_code_equiv("[1,2,3].filter(x=>x%2==0)", "[2]");
   }
 
+
+  #[test]
+  fn eval_array_reduce(){
+    test_code_equiv("[1,2,3].reduce((acc,x)=>acc+x,0)", "6");
+  }
+
+    
 
 
   #[test]

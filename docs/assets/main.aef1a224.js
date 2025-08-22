@@ -333,7 +333,7 @@ const chatView = (conn) => {
   });
   return el;
 };
-let chessCtx = (c) => {
+let chessCtx$1 = (c) => {
   let startBoard = [
     [{ type: "rook", color: "white" }, { type: "knight", color: "white" }, { type: "bishop", color: "white" }, { type: "queen", color: "white" }, { type: "king", color: "white" }, { type: "bishop", color: "white" }, { type: "knight", color: "white" }, { type: "rook", color: "white" }],
     [{ type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }],
@@ -350,8 +350,6 @@ let chessCtx = (c) => {
   function vecPos(vec) {
     return vec[0] + vec[1] * 10;
   }
-  if (vecPos(posVec(21)) != 21)
-    throw new Error("posVec failed");
   function isPos(pos) {
     let [x, y] = posVec(pos);
     return x >= 0 && x < 8 && y >= 0 && y < 8;
@@ -360,37 +358,20 @@ let chessCtx = (c) => {
     let [x, y] = posVec(pos);
     return board[y][x];
   }
+  function arrSet(arr, index2, value) {
+    return arr.map((v, i) => i == index2 ? value : v);
+  }
   function setPieceAt(board, pos, piece) {
     let [x, y] = posVec(pos);
-    board[y][x] = piece;
+    return arrSet(board, y, arrSet(board[y], x, piece));
   }
-  function getKing(board, color) {
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        let piece = board[i][j];
-        if (piece && piece.color === color && piece.type === "king") {
-          return i * 10 + j;
-        }
-      }
-    }
-    return null;
+  function hasKing(board, color) {
+    return board.filter((r, i) => r.filter((p2, j) => p2 && p2.type == "king").length > 0).length > 0;
   }
   function directions(p2) {
     let rook = [10, -10, 1, -1];
     let bish = [11, -11, 9, -9];
-    if (p2.type.startsWith("pawnmoved"))
-      return p2.color === "white" ? [10] : [-10];
-    if (p2.type.startsWith("pawn"))
-      return p2.color === "white" ? [10, 20] : [-10, -20];
-    if (p2.type.startsWith("knight"))
-      return [12, 8, 21, 19, -12, 8, -21, -19];
-    if (p2.type.startsWith("bishop"))
-      return bish;
-    if (p2.type.startsWith("rook"))
-      return rook;
-    if (p2.type.startsWith("queen") || p2.type.startsWith("king"))
-      return bish.concat(rook);
-    throw new Error("unknown piece type: " + p2.type);
+    return p2.type.startsWith("pawn") ? p2.color == "white" ? [10, 20] : [-10, -20] : p2.type.startsWith("knight") ? [12, 8, 21, 19, -12, 8, -21, -19] : p2.type.startsWith("bishop") ? bish : p2.type.startsWith("rook") ? rook : p2.type.startsWith("queen") || p2.type.startsWith("king") ? bish.concat(rook) : [];
   }
   function posadd(start, vec) {
     let [x, y] = posVec(start);
@@ -419,23 +400,8 @@ let chessCtx = (c) => {
         })
       );
     } else {
-      let ranged = ty.startsWith("rook") || ty.startsWith("bishop") || ty.startsWith("queen");
+      ty.startsWith("rook") || ty.startsWith("bishop") || ty.startsWith("queen");
       for (let dir of dirs) {
-        let pp = pos;
-        while (true) {
-          pp = pp + dir;
-          if (!isPos(pp))
-            break;
-          let tar = getPieceAt(board, pp);
-          if (tar) {
-            if (piece.color !== tar.color)
-              res.push(pp);
-            break;
-          }
-          res.push(pp);
-          if (!ranged)
-            break;
-        }
       }
       if (ty == "king") {
         if (getPieceAt(board, pos + 1) == null && getPieceAt(board, pos + 2) == null && getPieceAt(board, pos + 3)?.type == "rook")
@@ -450,9 +416,11 @@ let chessCtx = (c) => {
     return getPossibleMoves(board, pos);
   }
   function makeMove(m, move) {
+    let mover = getPieceAt(m.board, move.start);
+    if (!mover)
+      return ["no piece at start", m];
     if (m.winner != null)
       return ["game over", m];
-    let mover = getPieceAt(m.board, move.start);
     if (!mover || mover.color !== m.turn)
       return ["not your turn", m];
     let legalmoves = getLegalMoves(m.board, move.start);
@@ -462,35 +430,18 @@ let chessCtx = (c) => {
       mover.type += "moved";
     if (mover.type == "pawnmoved" && Math.abs(move.end - move.start) == 20)
       mover.type = "pawnmoveddouble";
-    if (mover.type.startsWith("pawn")) {
-      if (move.start % 10 != move.end % 10) {
-        if (getPieceAt(m.board, move.end) == null) {
-          setPieceAt(m.board, vecPos([move.end % 10, Math.floor(move.start / 10)]), null);
-        }
-      }
-    }
-    if (mover.type.startsWith("king")) {
-      let dist = move.start - move.end;
-      if (dist == 2) {
-        setPieceAt(m.board, move.end + 1, { ...mover, type: "rookmoved" });
-        setPieceAt(m.board, move.end - 2, null);
-      }
-      if (dist == -2) {
-        setPieceAt(m.board, move.end - 1, { ...mover, type: "rookmoved" });
-        setPieceAt(m.board, move.end + 1, null);
-      }
-    }
-    setPieceAt(m.board, move.end, mover);
-    if (mover.type.startsWith("pawn")) {
-      let y = Math.floor(move.end / 10);
-      if (y == 0 || y == 7)
-        setPieceAt(m.board, move.end, { ...mover, type: move.promo });
-    }
-    setPieceAt(m.board, move.start, null);
-    m.turn = m.turn === "white" ? "black" : "white";
-    if (getKing(m.board, m.turn) == null)
-      m.winner = m.turn === "white" ? "black" : "white";
-    return ["", m];
+    let sendcond = mover.type.startsWith("pawn") && move.start % 10 != move.end % 10 && getPieceAt(m.board, move.end) == null;
+    let board = sendcond ? setPieceAt(m.board, vecPos([move.end % 10, Math.floor(move.start / 10)]), null) : m.board;
+    let dist = move.end - move.start;
+    let board2 = mover.type.startsWith("king") ? dist == 2 ? setPieceAt(setPieceAt(board, move.end + 1, { ...mover, type: "rookmoved" }), move.end - 2, null) : dist == -2 ? setPieceAt(setPieceAt(board, move.end - 1, { ...mover, type: "rookmoved" }), move.end + 1, null) : board : board;
+    let y = Math.floor(move.end / 10);
+    let board4 = setPieceAt(setPieceAt(board2, move.end, mover.type.startsWith("pawn") && (y == 0 || y == 7) ? { ...mover, type: move.promo } : mover), move.start, null);
+    return ["", {
+      ...m,
+      board: board4,
+      turn: m.turn == "white" ? "black" : "white",
+      winner: hasKing(board4, m.turn) == null ? m.turn == "white" ? "black" : "white" : null
+    }];
   }
   return {
     startBoard,
@@ -499,14 +450,14 @@ let chessCtx = (c) => {
   };
 };
 let chessBox = {
-  loadApp: chessCtx,
+  loadApp: chessCtx$1,
   api: {
     getBoard: (ctx, arg) => {
       return ctx.startBoard;
     }
   }
 };
-let pieceImages = {
+let pieceImages$1 = {
   "pawn": "p",
   "knight": "N",
   "bishop": "B",
@@ -518,42 +469,42 @@ let pieceImages = {
   "pawnmoved": "p",
   "pawnmoveddouble": "p"
 };
-let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6;
-let chessBoard = div({ class: "chessboard", style: {
+let boardSize$1 = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6;
+let chessBoard$1 = div({ class: "chessboard", style: {
   backgroundColor: "#f0d9b5",
-  width: boardSize + "px",
-  height: boardSize + "px",
+  width: boardSize$1 + "px",
+  height: boardSize$1 + "px",
   margin: "auto",
   position: "relative",
   cursor: "pointer"
 } });
-let displayBoard = (m) => {
-  chessBoard.innerHTML = "";
+let displayBoard$1 = (m) => {
+  chessBoard$1.innerHTML = "";
   for (let j = 0; j < 8; j++) {
     for (let i = 0; i < 8; i++) {
       let square = div({ class: "square" });
-      square.style.width = boardSize / 8 + "px";
-      square.style.height = boardSize / 8 + "px";
-      chessBoard.appendChild(square);
+      square.style.width = boardSize$1 / 8 + "px";
+      square.style.height = boardSize$1 / 8 + "px";
+      chessBoard$1.appendChild(square);
       square.style.backgroundColor = (i + j) % 2 === 0 ? "#b58863" : "#f0d9b5";
-      square.style.left = j * boardSize / 8 + "px";
-      square.style.bottom = i * boardSize / 8 + "px";
+      square.style.left = j * boardSize$1 / 8 + "px";
+      square.style.bottom = i * boardSize$1 / 8 + "px";
       square.style.position = "absolute";
       let piece = m.board[i][j];
       if (piece) {
-        let pieceElement = div(pieceImages[piece.type], { class: "piece" });
-        pieceElement.style.width = boardSize / 8 + "px";
-        pieceElement.style.height = boardSize / 8 + "px";
+        let pieceElement = div(pieceImages$1[piece.type], { class: "piece" });
+        pieceElement.style.width = boardSize$1 / 8 + "px";
+        pieceElement.style.height = boardSize$1 / 8 + "px";
         pieceElement.style.position = "absolute";
         square.appendChild(pieceElement);
         pieceElement.style.color = piece.color === "white" ? "white" : "black";
         pieceElement.style.fontWeight = "bold";
-        pieceElement.style.fontSize = boardSize / 8 + "px";
+        pieceElement.style.fontSize = boardSize$1 / 8 + "px";
       }
     }
   }
 };
-let chessView = (conn) => {
+let chessView$1 = (conn) => {
   conn.handle(chessBox).then(async ({ call, users, subscribe }) => {
     console.log("chess app loaded");
     await call(conn.identity, chessBox.api.getBoard).then((board2) => {
@@ -570,15 +521,15 @@ let chessView = (conn) => {
     backgroundColor: "#f0d9b5",
     "font-family": "monospace"
   } });
-  pg.appendChild(chessBoard);
+  pg.appendChild(chessBoard$1);
   let match = {
-    board: chessCtx().startBoard,
+    board: chessCtx$1().startBoard,
     white: conn.identity,
     black: "id123",
     turn: "white",
     winner: null
   };
-  displayBoard(match);
+  displayBoard$1(match);
   return pg;
 };
 const DEFAULT_ENCODING = "utf-8";
@@ -5799,8 +5750,14 @@ function connectServer(url, dbname, tokenStore) {
               let val = storeCache.get(key);
               if (val == "undefined")
                 lamQueue.get(key)?.resolve(void 0);
-              else
-                lamQueue.get(key)?.resolve(JSON.parse(val));
+              else {
+                let [res, logs] = JSON.parse(val);
+                if (logs) {
+                  console.log("remote logs:");
+                  logs.forEach((l) => console.log(JSON.parse(l)));
+                }
+                lamQueue.get(key)?.resolve(res);
+              }
             } catch (e) {
               lamQueue.get(key)?.resolve(null);
             }
@@ -5866,6 +5823,300 @@ function connectServer(url, dbname, tokenStore) {
     }).build();
   });
 }
+let chessCtx = {
+  loadApp: (c) => {
+    let startBoard = [
+      { type: "rook", color: "white" },
+      { type: "knight", color: "white" },
+      { type: "bishop", color: "white" },
+      { type: "queen", color: "white" },
+      { type: "king", color: "white" },
+      { type: "bishop", color: "white" },
+      { type: "knight", color: "white" },
+      { type: "rook", color: "white" },
+      null,
+      null,
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      { type: "pawn", color: "white" },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      { type: "pawn", color: "black" },
+      null,
+      null,
+      { type: "rook", color: "black" },
+      { type: "knight", color: "black" },
+      { type: "bishop", color: "black" },
+      { type: "queen", color: "black" },
+      { type: "king", color: "black" },
+      { type: "bishop", color: "black" },
+      { type: "knight", color: "black" },
+      { type: "rook", color: "black" },
+      null,
+      null
+    ];
+    function isPos(pos) {
+      return pos >= 0 && pos < 80 && pos % 10 < 8;
+    }
+    function getPieceAt(board, pos) {
+      return board[pos];
+    }
+    function arrSet(arr, index2, value) {
+      return arr.map((v, i) => i == index2 ? value : v);
+    }
+    let left = 1;
+    let right = -left;
+    function directions(p2) {
+      let up = p2.color == "white" ? 10 : -10;
+      let down = -up;
+      return p2.type == "pawn" ? [up, up + up] : p2.type == "pawnmoved" || p2.type == "pawnmoveddouble" ? [up] : p2.type == "knight" ? [up + left * 2, up + right * 2, down + left * 2, down + right * 2, up * 2 + left, up * 2 + right, down * 2 + left, down * 2 + right] : p2.type == "bishop" ? [up + left, up + right, down + left, down + right] : p2.type == "rook" || p2.type == "rookmoved" ? [up, down, left, right] : p2.type == "king" || p2.type == "queen" || p2.type == "kingmoved" ? [up, down, left, right, up + left, up + right, down + left, down + right] : [];
+    }
+    function getLegalMoves(board, pos) {
+      let piece = getPieceAt(board, pos);
+      if (!piece) {
+        return [];
+      }
+      if (piece.type == "rook" || piece.type == "bishop" || piece.type == "queen" || piece.type == "rookmoved") {
+        let getRay = (pos2, dir) => {
+          let pp = pos2 + dir;
+          if (!isPos(pp)) {
+            return [];
+          }
+          let target = getPieceAt(board, pp);
+          if (target) {
+            if (target.color == piece.color) {
+              return [];
+            }
+            return [pp];
+          }
+          return [pp, ...getRay(pp, dir)];
+        };
+        return directions(piece).reduce((acc, dir) => {
+          return [...acc, ...getRay(pos, dir)];
+        }, []);
+      }
+      if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble") {
+        let moves = directions(piece).map((d) => pos + d).filter((p2) => isPos(p2) && getPieceAt(board, p2) == null);
+        let up = piece.color == "white" ? 10 : -10;
+        let hits = [left, right].map((d) => pos + d + up).filter((t) => {
+          let target = getPieceAt(board, t);
+          return target && target.color != piece.color;
+        });
+        console.log({ hits });
+        let passants = [left, right].map((d) => pos + d).filter((t) => {
+          let target = getPieceAt(board, t);
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
+            return true;
+          }
+          return false;
+        }).map((t) => t + up);
+        return [...moves, ...passants, ...hits];
+      }
+      return directions(piece).map((d) => pos + d).filter((p2) => {
+        let target = getPieceAt(board, p2);
+        return !target || target.color != piece.color;
+      });
+    }
+    function makeMove(m, move) {
+      let piece = getPieceAt(m.board, move.start);
+      if (!piece) {
+        return ["no piece at start", m];
+      }
+      if (m.winner != null) {
+        return ["game over", m];
+      }
+      if (piece.color != m.turn) {
+        return ["not your turn", m];
+      }
+      let options = getLegalMoves(m.board, move.start);
+      console.log({ options });
+      let dist = move.end - move.start;
+      let npBoard = m.board.map((p2) => p2 && p2.type == "pawnmoveddouble" ? { ...p2, type: "pawnmoved" } : p2);
+      let ptype = piece.type == "pawn" || piece.type == "pawnmoveddouble" ? dist == 20 || dist == -20 ? "pawnmoveddouble" : "pawnmoved" : piece.type == "king" ? "kingmoved" : piece.type == "rook" ? "rookmoved" : piece.type;
+      let newBoard = arrSet(arrSet(npBoard, move.start, null), move.end, { ...piece, type: ptype });
+      if (!options.includes(move.end)) {
+        return ["Invalid move", m];
+      }
+      let resMatch = {
+        board: newBoard,
+        turn: m.turn == "white" ? "black" : "white",
+        winner: null
+      };
+      if (ptype == "pawnmoved") {
+        if (dist % 10 != 0) {
+          let passant = move.end % 10 + Math.floor(move.start / 10) * 10;
+          let target = getPieceAt(resMatch.board, passant);
+          console.log({ target, passant });
+          let pboard = arrSet(resMatch.board, passant, null);
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
+            return ["", { ...resMatch, board: pboard }];
+          }
+        }
+      }
+      return ["", resMatch];
+    }
+    return {
+      startBoard,
+      getLegalMoves,
+      makeMove
+    };
+  },
+  api: {
+    getstartBoard: (c, arg) => {
+      return c.startBoard;
+    },
+    getMoves: (c, arg) => {
+      return c.getLegalMoves(c.startBoard, 10);
+    },
+    mkMove: (c, arg) => {
+      return c.makeMove(arg[0], arg[1]);
+    }
+  }
+};
+let pieceImages = {
+  "pawn": "p",
+  "knight": "N",
+  "bishop": "B",
+  "rook": "R",
+  "queen": "Q",
+  "king": "K",
+  "kingmoved": "K",
+  "rookmoved": "R",
+  "pawnmoved": "p",
+  "pawnmoveddouble": "p"
+};
+let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6;
+let chessBoard = div({ class: "chessboard", style: {
+  backgroundColor: "#f0d9b5",
+  width: boardSize + "px",
+  height: boardSize + "px",
+  margin: "auto",
+  position: "relative",
+  cursor: "pointer"
+} });
+let focuspos = 0;
+let displayBoard = (m) => {
+  chessBoard.innerHTML = "";
+  chessBoard.appendChild(div(m.board.map((p2, n) => {
+    let x = n % 10;
+    let y = Math.floor(n / 10);
+    let square = div({
+      style: {
+        width: boardSize / 8 + "px",
+        height: boardSize / 8 + "px",
+        "background-color": (x + y) % 2 == 0 ? focuspos == n ? "#c5a8a3" : "#b58863" : focuspos == n ? "#c5a8a3" : "#a9a0a0",
+        left: x * boardSize / 8 + "px",
+        bottom: y * boardSize / 8 + "px",
+        position: "absolute"
+      },
+      onclick: () => {
+        let [error, next] = focuspos == null || focuspos == n ? [null, m] : chessCtx.loadApp(void 0).makeMove(m, {
+          start: focuspos,
+          end: n,
+          promo: null
+        });
+        focuspos = focuspos == n ? null : n;
+        console.log(error);
+        displayBoard(error ? m : next);
+      }
+    });
+    let piece = m.board[n];
+    if (piece) {
+      let pieceElement = div(pieceImages[piece.type], {
+        style: {
+          width: boardSize / 8 + "px",
+          height: boardSize / 8 + "px",
+          position: "absolute",
+          color: piece.color === "white" ? "white" : "black",
+          "font-weight": "bold",
+          "font-size": boardSize / 8 + "px"
+        }
+      });
+      square.appendChild(pieceElement);
+    }
+    return x > 7 ? div() : square;
+  })));
+};
+let chessView = (conn) => {
+  let ctx = chessCtx.loadApp(void 0);
+  let m = {
+    board: ctx.startBoard,
+    turn: "white",
+    winner: null
+  };
+  conn.handle(chessCtx).then(({ call, users }) => {
+    call(conn.identity, chessCtx.api.getstartBoard, null).then((m2) => {
+      let b = {
+        board: m2,
+        turn: "white",
+        winner: null
+      };
+      displayBoard(b);
+    });
+    call(conn.identity, chessCtx.api.mkMove, [m, { start: 10, end: 20, promo: null }]).then((resp) => {
+      console.log("resp", resp);
+      let [err, m2] = resp;
+      console.log(err, m2);
+      displayBoard(m2);
+    });
+  });
+  displayBoard(m);
+  let el = div({ class: "chess-container" });
+  el.appendChild(chessBoard);
+  return el;
+};
 const appname = "rubox_app";
 document.title = appname;
 function getLocation() {
@@ -5898,7 +6149,8 @@ connectServer(serverurl, "rubox", new Stored("rubox-token-" + location.serverLoc
   const apps = [
     { init: home, path: "", cache: void 0 },
     { init: (server2) => chatView(server2), path: "chat", cache: void 0 },
-    { init: (server2) => chessView(server2), path: "chess", cache: void 0 }
+    { init: (server2) => chessView$1(server2), path: "chess", cache: void 0 },
+    { init: (server2) => chessView(server2), path: "chess2", cache: void 0 }
   ];
   route(location.path);
   window.addEventListener("popstate", (e) => {

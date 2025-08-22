@@ -318,6 +318,20 @@ pub fn do_eval(
                       if v == val {found = true; break;}
                     }
                     Ok(v(Value::Boolean(found)))
+                  },
+                  Method::ArrayReduce=>{
+                    let fun = arg_vals.get(0).ok_or(format!("no function provided for reduce"))?;
+                    let mut acc = arg_vals.get(1).cloned().unwrap_or_else(|| v(Value::Undefined));
+                    match fun.as_ref() {
+                      Value::Closure(cl)=>{
+                        for v in self_arr {
+                          let args = if (cl.params.len() == 1) {vec![v.clone()]} else {vec![acc.clone(), v.clone()]};
+                          acc = run_closure(cl, args, env, native_fns.clone(), logs)?;
+                        }
+                        Ok(acc)
+                      }
+                      _=>return Err("attempted to reduce a non-function value".into())
+                    }
                   }
                   _=>return Err(format!("method {:?} not found on array", method))
                 }
@@ -509,7 +523,7 @@ pub fn do_eval(
               },
               Builtin::Array => match prop.as_str() {
                 "from" => Ok(v(Value::Builtin(Builtin::ArrayFrom))),
-                _=>return Err(format!("property {} not found on array", prop))
+                _=>return Err(format!("property {} not found on Array class", prop))
               },
               Builtin::Math => match prop.as_str() {
                 "abs" => Ok(v(Value::Builtin(Builtin::MathAbs))),

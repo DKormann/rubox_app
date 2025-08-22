@@ -3,7 +3,7 @@ export {}
 
 
 
-
+[].reduce((a, b) => a + b, "")
 import { chatView } from "./clients/chatbox"
 import { chessView } from "./clients/chess"
 
@@ -65,6 +65,8 @@ console.log(location)
 
 
 const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
+
+console.log("connecting to server at", serverurl)
 const body = document.body;
 
 body.appendChild(h2("loading..."))
@@ -94,8 +96,8 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
   }[] = [
     {init: home, path: "", cache: undefined},
     {init: (server)=>chatView(server), path: "chat", cache: undefined},
-    {init: (server)=>chessView(server), path: "chess", cache: undefined},
-    {init: (server)=>chessView2(server), path: "chess2", cache: undefined},
+    // {init: (server)=>chessView(server), path: "chess", cache: undefined},
+    {init: (server)=>chessView2(server), path: "chess", cache: undefined},
 
   ]
 
