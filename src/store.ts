@@ -61,4 +61,46 @@ export interface Readable<T> {
   subscribeLater(listener: (value: T) => void): void
 }
 
+export type Consumer = {
+  resolve : (value:any) => void
+  reject? : (e:Error) => void
+}
 
+export class CachedStore {
+
+  cache: Map<bigint, string>
+  requests: Map<bigint, Consumer[]>
+  subscriptions: Map<bigint, Consumer[]>
+
+  // producer: (key:bigint)=> void
+
+  constructor(){
+    this.cache = new Map<bigint, string>()
+    this.requests = new Map<bigint, Consumer[]>()
+  }
+
+  request (key: bigint, callback: Consumer, ){
+    if (this.cache.has(key)) return callback.resolve(this.cache.get(key)!)
+    if (this.requests.has(key)){
+      this.requests.get(key).push(callback)
+    }else{
+      this.requests.set(key, [callback])
+    }
+  }
+
+  
+
+  reject(key:bigint, e:Error){
+    this.requests.get(key)?.forEach(r=>{if (r.reject) r.reject(e)})
+    this.requests.delete(key)
+    this.cache.set(key, undefined)
+  }
+
+  produce(key:bigint, value:any){
+    this.requests.get(key)?.forEach(r=>r.resolve(value))
+    this.requests.delete(key)
+    this.cache.set(key, value)
+  }
+  
+
+}

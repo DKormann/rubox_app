@@ -15,10 +15,9 @@ type Msg = {
   message:string
 }
 
-const msgApp : ServerApp<ChatCtx> = {
+export const msgApp : ServerApp<ChatCtx> = {
   loadApp: (c:DefaultContext) => {
     return {
-
       pushMsg: (msg:string)=>{
         let d:Msg = {
           sender: c.self,
@@ -37,7 +36,7 @@ const msgApp : ServerApp<ChatCtx> = {
       ctx.DB.set(true, "name", arg)
     },
 
-    getname:(ctx,arge)=>{
+    getname:(ctx,arg)=>{
       return ctx.DB.get(false, "name")
     },
 
@@ -54,7 +53,8 @@ const msgApp : ServerApp<ChatCtx> = {
 
 
 
-console.log("FUN",msgApp.api.getMessages.toString())
+
+
 
 
 export const chatView : PageComponent = (conn:ServerConnection) => {

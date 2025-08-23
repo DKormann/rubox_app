@@ -1,7 +1,8 @@
-import {div} from "../html"
+import {button, div, h2, input, p, popup} from "../html"
 import { PageComponent } from "../main"
 import { Writable } from "../store"
 import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
+import { msgApp } from "./chatbox"
 
 
 type PieceType = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king" | "kingmoved" | "rookmoved" | "pawnmoved" | "pawnmoveddouble"
@@ -33,6 +34,8 @@ type Move = {
 let chessCtx : ServerApp <ChessContext> = {
 
   loadApp : (c:DefaultContext)=>{
+
+
 
     let startBoard : Board = [
       {type:"rook", color:"white"}, {type:"knight", color:"white"}, {type:"bishop", color:"white"}, {type:"queen", color:"white"}, {type:"king", color:"white"}, {type:"bishop", color:"white"}, {type:"knight", color:"white"}, {type:"rook", color:"white"}, null, null,
@@ -133,8 +136,6 @@ let chessCtx : ServerApp <ChessContext> = {
 
     function makeMove(m:Match, move:Move):[string, Match]{
 
-      
-
       let piece = getPieceAt(m.board, move.start)
       if (!piece) {return ["no piece at start", m]}
       if (m.winner != null) {return ["game over", m]}
@@ -188,7 +189,8 @@ let chessCtx : ServerApp <ChessContext> = {
   api: {
 
     getstartBoard: (c, arg)=>{
-      return c.startBoard
+      let b = c.startBoard
+      return b
     },
 
     getMoves: (c, arg)=>{
@@ -238,8 +240,8 @@ let opponentId = new Writable<IdString|null>(null);
 
 let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
 
-  chessBoard.innerHTML = ""
 
+  chessBoard.innerHTML = ""
 
   chessBoard.appendChild(div(m.board.map((p, n)=>{
 
@@ -303,9 +305,10 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
     winner: null
   }
 
+  let el = div(h2("loading chess..."))
 
-  conn.handle(chessCtx).then((app)=>{
-
+  Promise.all([conn.handle(chessCtx), conn.handle(msgApp)]).then(async ([app, socialApp])=>
+  {
 
     opponentId.set(conn.identity);
 
@@ -319,23 +322,71 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
 
     })
 
-    // call(conn.identity, chessCtx.api.mkMove, [m , {start: 10, end: 20, promo: null}]).then((resp)=>{
-    //   console.log("resp", resp)
-    //   let [err,m] = resp
-    //   console.log(err,m)
-    //   displayBoard(m)
-    // })
+    el.innerHTML = ""
+
+
+
+    el.appendChild(div(
+      h2("Chess"),
+      chessBoard,
+      button("New Game", {
+        onclick: async ()=>{
+          console.log(conn.identity),
+          popup(div(
+            h2("New Game"),
+            p("your name:", socialApp.call(conn.identity, msgApp.api.getname).then(n=>{
+              return n
+            })),
+
+
+            p("Choose an opponent:"),
+
+
+            app.users().then((us)=>{
+              return us.map((u)=>{
+                console.log(u)
+
+                return button(socialApp.call(u, msgApp.api.getname), {
+                  
+                  onclick: async ()=>{
+                    let m:Match = {
+                      board: ctx.startBoard,
+                      turn: "white",
+                      winner: null
+                    }
+                    displayBoard(m, app)
+                  }
+                })
+              })
+            })
+          ))
+          socialApp.call(conn.identity, msgApp.api.getname).then(n=>{
+            {
+              let inp = input();
+              inp.placeholder = n
+              let el =  popup(div(
+                h2(`Set your name`),
+                inp,
+                button("Set", {
+                  onclick: async (e)=>{
+                    socialApp.call(conn.identity, msgApp.api.setname, inp.value)
+                    el.remove()
+                  }
+                })
+              ))
+              return el
+            }
+          })
+        }
+      }),
+    ))
+
 
   })
 
 
-
-
-  // displayBoard(m)
-
   
-  let el = div({class:"chess-container"})
-  el.appendChild(chessBoard)
+  // el.appendChild(chessBoard)
   return el
 }
 

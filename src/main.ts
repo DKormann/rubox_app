@@ -77,8 +77,9 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
   
 
   const home = () => div(
-    h2("home"),
-    p("welcome to the rubox"),
+    h2("welcome to the rubox"),
+    p("This is a simple app to demonstrate the use of the Rubox framework."),
+
     ...apps.filter(x=>x.path).map(app => p(
       button(app.path, {
         onclick: () => {
@@ -117,6 +118,20 @@ connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.ser
     
     window.history.pushState({}, "", newpath)
     body.innerHTML = ''
+    body.appendChild(div(
+      {style:{
+        "max-width": "20em",
+        position: "absolute",
+        top: "0",
+        left: "1em",
+        cursor: "pointer",
+      },
+        onclick: () => {
+          route([])
+        }},
+      h2("rubox"),
+
+    ))
     body.style.fontFamily = "monospace"
     body.style.textAlign = "center"
     for (const app of apps){

@@ -1,8 +1,7 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
 import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
-import { Writable } from "./store";
-
+import { CachedStore, Writable } from "./store";
 
 
 
@@ -65,14 +64,10 @@ export const IdentityFromString = (s:IdString)=>{
 
 
 export function connectServer(url:string, dbname:string, tokenStore:{get:()=>string, set:(value:string)=>void}) : Promise<ServerConnection> {
-
+  
   return new Promise<ServerConnection>((resolve, reject) => {
-
-    let store_subs : Map <bigint, ((value:Serial)=>void)[]> = new Map()
-
-
-
-
+    
+    const storeQueue = new CachedStore()
 
 
     DbConnection.builder()
@@ -83,25 +78,14 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
       tokenStore.set(token)
 
-      const storeCache = new Map<bigint, string>();
-
+      // const storeCache = new Map<bigint, string>();
       const hostCache = new Writable<{[key:string]:true}>({})
-
 
       conn.subscriptionBuilder()
       .onApplied(c=>{
 
         console.log("APPLIED")
-
-        c.db.store.onInsert((c,store)=>{
-
-          if (store.owner.data == identity.data){
-            storeCache.set(store.key, store.content)
-            store_subs.get(store.key)?.forEach(sub=>sub(JSON.parse(store.content)))
-          }
-
-        })
-
+        
         c.db.host.onInsert((c,host:Host)=>{
 
           if (host.host.data == identity.data){
@@ -113,37 +97,23 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           
         })
 
-        c.db.store.onUpdate((c,old,news)=>{
-          console.log("UPDATE", old, news)
-          if (news.owner.data == identity.data){
-              storeCache.set(news.key, news.content)
-              store_subs.get(news.key)?.forEach(sub=>sub(JSON.parse(news.content)))
+        c.db.store.onInsert((c,store)=>{
+
+          if (store.owner.data == identity.data){
+            try{
+              let [data, logs] = JSON.parse(store.content);
+              logs.forEach(console.log)
+              storeQueue.produce(store.key, data)
+            }catch{
+              storeQueue.reject(store.key, new Error("JSON error: "+store.content))
+            }
           }
         })
 
-        c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
-          const key = await hashFunArgs(identity, other, app, lam, arg)
-          if (ctx.event.status.tag == "Failed") lamQueue.get(key)?.reject(ctx.event.status.value)
-          else {
-            try{
-              let val = storeCache.get(key)
-              if (val == "undefined") lamQueue.get(key)?.resolve(undefined)
-              else {
-
-                let [res, logs] = JSON.parse(val)
-                if (logs){
-                  console.log("remote logs:")
-                  logs.forEach(l=>console.log(JSON.parse(l)))
-                }
-                lamQueue.get(key)?.resolve(res)
-              }
-            }catch(e){
-
-              lamQueue.get(key)?.resolve(null)
-            }
+        c.db.store.onUpdate((c,old,news)=>{
+          if (news.owner.data == identity.data){
+            storeQueue.produce(news.key, JSON.parse(news.content))
           }
-
-          lamQueue.delete(key)
         })
 
       })
@@ -155,8 +125,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         `SELECT * FROM lambda`,
         `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
       ])
-
-
 
       const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
 
@@ -172,7 +140,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
 
         let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
-          // console.log("CALL", target, fn, arg)
+
           return new Promise<any>(async (resolve, reject) => {
             const argstring = JSON.stringify(arg);
             const funstring = fn.toString()
@@ -180,7 +148,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
             const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
             const lamH = await hashString(funstring)
 
-            lamQueue.set(callH, {resolve, reject})
+            storeQueue.request(callH, {resolve, reject})
             conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
           })
         }
@@ -204,8 +172,7 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           users,
           subscribe: async (keyname:string, callback:(value:string)=>void) => {
             const key = await hashStoreKey(identity, hashed.hash, keyname)
-            if (!store_subs.has(key))store_subs.set(key, [])
-            store_subs.get(key)?.push(callback)
+            storeQueue.request(key, {resolve:callback})
           }
         }
 
@@ -213,15 +180,9 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
           let hash = hashed.hash.toString()
           hostCache.subscribe(h=>{if (h[hash])resolve(apphandle)})
           conn.reducers.sethost(hashed.hash, true)
-
         })
 
       }
-
-      const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
-
-
-
 
 
       resolve({identity: IdString(identity), handle})
