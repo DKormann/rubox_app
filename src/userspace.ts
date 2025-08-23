@@ -69,7 +69,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
     
     const storeQueue = new CachedStore()
 
-
     DbConnection.builder()
     .withUri(url)
     .withModuleName(dbname)
@@ -105,7 +104,8 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
               logs.forEach(console.log)
               storeQueue.produce(store.key, data)
             }catch{
-              storeQueue.reject(store.key, new Error("JSON error: "+store.content))
+              console.info("JSON error: "+store.content )
+              storeQueue.produce(store.key, null)
             }
           }
         })

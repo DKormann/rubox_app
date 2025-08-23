@@ -52,102 +52,99 @@ export const msgApp : ServerApp<ChatCtx> = {
 }
 
 
+type ChatService = {
+  getName:(id:IdString)=>Writable<string>,
+  identity:IdString,
+}
 
+let chatService : null | ChatService = null;
+
+
+export const getChatService = async (conn:ServerConnection)=>{
+  if (!chatService) {
+    chatService = await doGetChatSerice(conn)
+  }
+  return chatService
+  
+}
+
+
+
+const doGetChatSerice = (conn:ServerConnection) :Promise<ChatService>=> {
+
+  return new Promise((res, rej)=>{
+  conn.handle(msgApp).then(async ({call, users, subscribe})=>{
+
+    let nametable = new Map<IdString, Writable<string>> ()
+    const getName = (id:IdString) =>{
+      if (!nametable.has (id)){
+        let wr = new Writable<string> ("loading name ...")
+        nametable.set(id, wr)
+        call(id, msgApp.api.getname).then(n=>wr.set(n))
+      }
+      return nametable.get(id)
+    }
+
+
+    let myname = getName(conn.identity);
+    myname.subscribe(n=>{
+      console.log("myname:", n)
+      if (!n){
+        let inp = input()
+        inp.placeholder = "username"
+        popup(div(
+          h2("Enter your username"),
+          inp,
+          button("set", {onclick:()=>{
+            call(conn.identity, msgApp.api.setname, inp.value).then(()=>{
+              myname.set(inp.value)
+            })
+          }})
+        ))
+      }
+    })
+
+
+
+
+    res({
+
+      getName,
+
+      myname,
+
+
+    })
+
+  })})
+
+}
 
 
 
 
 export const chatView : PageComponent = (conn:ServerConnection) => {
 
-  let nametable = new Map<IdString, Writable<string>>()
 
   let adis = p()
 
   let el = div()
+
+  let myname = chatService.getName(conn.identity)
   
-  
-  conn.handle(msgApp).then(async ({call, users, subscribe})=>{
-    console.log("handle", msgApp)
-    async function getName(id:IdString){
-      let cached = nametable.get(id)
-      if (cached) return cached
-      let writable = new Writable<string>("")
 
-      call(id, msgApp.api.getname, id).then(name=>writable.set(name))
-      nametable.set(id, writable)
-      return writable
-    }
-
-
-    let msgs = new Writable<Msg[]>([])
-    let msgDisplay = new Writable<HTMLElement>(div());
-    let other = new Stored<IdString>("other", conn.identity)
-
-
-    function displayMsgs(){
-      msgDisplay.set(div(
-
-        msgs.get().filter(msg=>(msg.receiver == other.get() && msg.sender == conn.identity) || ( msg.sender == other.get() && msg.receiver == conn.identity))
-        .map(msg=>p(getName(msg.sender), " : ",msg.message)),
-        {style:{"max-width": "20em", "margin":"auto"}}
-      ))
-    }
-
-
-    call(conn.identity, msgApp.api.getMessages).then(m=>msgs.set(m??[]))
-    msgs.subscribe(e=>displayMsgs())
-    other.subscribeLater(no=>displayMsgs())
-    subscribe("messages", (c:Msg[])=>{
-      msgs.set(c ?? [])}
-    )
-
-
-    let myname = input();
-    await getName(conn.identity).then(name=>name.subscribe(n=>myname.value = n))
-
-    let msginput = input()
-    let send = button("send")
-    send.onclick = async () => {
-      await call(other.get(), msgApp.api.sendMessage, msginput.value)
-      msginput.value = ""
-    }
-
-    let othername = new Writable<string>("")
-    other.subscribe(id=>{
-      getName(id).then(name=>name.subscribe(n=>othername.set(n)))
-    })
-  
+  getChatService(conn).then(chatService=>{
+    let nameinp = input()
     el.appendChild(div(
-      h2("chat"),
-      adis,
-
-      p("my name:",myname, button("update", {
-        onclick: () => {
-          call(conn.identity, msgApp.api.setname, myname.value).then(()=>{
-            getName(conn.identity).then(name=>name.set(myname.value))
-          })
-        }
-      })),
-
-      button("chat with: ", othername, {onclick: () => {
-        let el = popup(div(
-          h2("chat with"),
-          users().then(users=>users.map(user=>p(
-            getName(user),
-            {onclick:()=>{
-              other.set(user)
-              el.remove()
-            }}
-          )))
-        ))
-      }}),
-
-      msgDisplay,
-
-      p("send message:",msginput, send),
-
+      p("your name: ", chatService.getName(conn.identity), )
     ))
+
   })
+
+  
+
+
+  
 
   return el
 }
