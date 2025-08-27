@@ -2,7 +2,7 @@ import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
 import { ServerApp, DefaultContext, IdString, ServerConnection } from "../userspace";
-import { Stored, Writable } from "../store";
+import { sMap, Stored, Writable } from "../store";
 
 
 type ChatCtx = {
@@ -56,6 +56,9 @@ export const msgApp : ServerApp<ChatCtx> = {
 type ChatService = {
   getName:(id:IdString)=>Writable<string>,
   identity:IdString,
+
+  sendMessage:(to:IdString, msg:string)=>Promise<void>,
+  msgs:Writable<Msg[]>,
 }
 
 let chatService : null | ChatService = null;
@@ -113,9 +116,19 @@ const doGetChatSerice = (conn:ServerConnection) :Promise<ChatService>=> {
       }
     })
 
+    let msgs = await get("messages");
+
+    await call(conn.identity, msgApp.api.getMessages).then(m=>{
+      if (m) msgs.set(m)
+    })
+
     res({
       getName,
-      identity:conn.identity
+      identity:conn.identity,
+      msgs,
+      sendMessage: (to:IdString, msg:string)=>{
+        return call(to, msgApp.api.sendMessage, msg)
+      }
     })
 
   })})
@@ -135,15 +148,23 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   getChatService(conn).then(chatService=>{
     let nameinp = input()
     el.appendChild(div(
-      p("your name: ", chatService.getName(conn.identity), )
+      p("your name: ", chatService.getName(conn.identity), ),
+      sMap(chatService.msgs, msgs=>{
+        if (!msgs) return p("no messages yet")
+        return div(
+          ...msgs.map(m=>{
+            return p(
+              m.sender == conn.identity ? "me" : chatService.getName(m.sender),
+              ": ", m.message
+            )
+          })
+        )
+      }),
+      button("say hi", {onclick:()=>{
+        chatService.sendMessage(chatService.identity, "hi!")
+      }}),
     ))
-
   })
-
-  
-
-
-  
 
   return el
 }

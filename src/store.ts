@@ -126,7 +126,7 @@ export function sIf <T> (cond:Writable<boolean>, then:Readable<T>, otherwise?:Re
   return res
 }
 
-export function sMap <T,U> (source:Readable<T>, mapper:(value:T)=>U) : Readable<U> {
+export function sMap <T,U> (source:Readable<T>, mapper:(value:T)=>U) : Writable<U> {
 
   let res = new Writable<U>(mapper(source.get()))
   source.subscribe(v=>{
