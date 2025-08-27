@@ -61,6 +61,14 @@ pub struct Store{
 }
 
 
+#[table(name = returns, public)]
+pub struct Returns{
+  #[primary_key]
+  owner:Identity,
+  content:String,
+}
+
+
 #[derive(SpacetimeType)]
 pub struct AppData{
   setup:String,
@@ -128,6 +136,17 @@ pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&st
 
 fn identity_string(id:Identity)->String{
   format!("id{}", id.to_hex())
+}
+
+
+#[reducer(client_connected)]
+pub fn identity_connected(ctx: &ReducerContext) {
+  // Called everytime a new client connects
+
+  ctx.db.returns().try_insert(Returns{
+    owner:ctx.sender,
+    content:"[null, []]".into()
+  });
 }
 
 
@@ -203,27 +222,13 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
 
   let (res, logs) = eval_native(&finast, native_fns)?;
 
-
-  let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
-
-  let res = Value::Array(vec![
-    if (res == Value::Undefined.into()) {Value::Null.into()} else {res.into()},
-    Value::Array(logs.iter().map(|l| Rc::new(Value::String(l.clone()))).collect()).into()
-  ]);
-
-  let item  = Store{
-    key:key,
+  let res = read_back(&res);
+  let ret = Returns{
     owner:ctx.sender,
-    content:read_back(&res)
+    content:res.clone()
   };
 
-  match ctx.db.store().try_insert(item.clone()){
-    Ok(_) => Ok(()),
-    Err(e) => {
-      ctx.db.store().key().update(item);
-      Ok(())
-    }
-  }
-
+  ctx.db.returns().owner().update(ret);
+  Ok(())
 
 }
