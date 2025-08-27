@@ -207,7 +207,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
   let res = Value::Array(vec![
-    res.into(),
+    if (res == Value::Undefined.into()) {Value::Null.into()} else {res.into()},
     Value::Array(logs.iter().map(|l| Rc::new(Value::String(l.clone()))).collect()).into()
   ]);
 

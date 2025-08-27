@@ -380,13 +380,12 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
         }
       }),
     ))
-
-
   })
-
-
   
   // el.appendChild(chessBoard)
   return el
 }
+
+
+
 

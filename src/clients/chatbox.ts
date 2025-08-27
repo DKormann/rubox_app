@@ -37,6 +37,7 @@ export const msgApp : ServerApp<ChatCtx> = {
     },
 
     getname:(ctx,arg)=>{
+      let a = 2;
       return ctx.DB.get(false, "name")
     },
 
@@ -73,47 +74,48 @@ export const getChatService = async (conn:ServerConnection)=>{
 const doGetChatSerice = (conn:ServerConnection) :Promise<ChatService>=> {
 
   return new Promise((res, rej)=>{
-  conn.handle(msgApp).then(async ({call, users, subscribe})=>{
+  conn.handle(msgApp).then(async ({call, users, get})=>{
 
     let nametable = new Map<IdString, Writable<string>> ()
     const getName = (id:IdString) =>{
       if (!nametable.has (id)){
         let wr = new Writable<string> ("loading name ...")
         nametable.set(id, wr)
-        call(id, msgApp.api.getname).then(n=>wr.set(n))
+        call(id, msgApp.api.getname).then(n=>{
+          console.log("uname:", n)
+          wr.set(n)
+        })
       }
       return nametable.get(id)
     }
 
+    const myname = getName(conn.identity)
 
-    let myname = getName(conn.identity);
+
     myname.subscribe(n=>{
       console.log("myname:", n)
       if (!n){
         let inp = input()
         inp.placeholder = "username"
-        popup(div(
+        let pn = popup(div(
           h2("Enter your username"),
           inp,
           button("set", {onclick:()=>{
             call(conn.identity, msgApp.api.setname, inp.value).then(()=>{
               myname.set(inp.value)
+              pn.remove()
+            })
+            .catch(e=>{
+              console.error(e)
             })
           }})
         ))
       }
     })
 
-
-
-
     res({
-
       getName,
-
-      myname,
-
-
+      identity:conn.identity
     })
 
   })})
@@ -129,9 +131,6 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   let adis = p()
 
   let el = div()
-
-  let myname = chatService.getName(conn.identity)
-  
 
   getChatService(conn).then(chatService=>{
     let nameinp = input()

@@ -53,8 +53,6 @@ export class Stored<T> extends Writable<T> {
   }
 }
 
-
-
 export interface Readable<T> {
   get(): T
   subscribe(listener: (value: T) => void): void
@@ -68,39 +66,71 @@ export type Consumer = {
 
 export class CachedStore {
 
-  cache: Map<bigint, string>
   requests: Map<bigint, Consumer[]>
-  subscriptions: Map<bigint, Consumer[]>
+  subscriptions: Map<bigint, Writable<any>>
 
-  // producer: (key:bigint)=> void
 
   constructor(){
-    this.cache = new Map<bigint, string>()
     this.requests = new Map<bigint, Consumer[]>()
+    this.subscriptions = new Map<bigint, Writable<any>>()
+
   }
 
-  request (key: bigint, callback: Consumer, ){
-    if (this.cache.has(key)) return callback.resolve(this.cache.get(key)!)
-    if (this.requests.has(key)){
-      this.requests.get(key).push(callback)
-    }else{
-      this.requests.set(key, [callback])
-    }
+  request (key:bigint) : Promise<any> {
+    return new Promise((resolve, reject)=>{
+
+      if (this.subscriptions.has(key)) resolve(this.subscriptions.get(key).get())
+      if (!this.requests.has(key)) this.requests.set(key, [])
+      this.requests.get(key).push({resolve,reject})
+    })
   }
 
-  
+  subscribe(key:bigint){
+    
+    if (!this.subscriptions.has(key))
+      this.subscriptions.set(key, new Writable<any>(null))
+    return this.subscriptions.get(key)
+  }
 
   reject(key:bigint, e:Error){
     this.requests.get(key)?.forEach(r=>{if (r.reject) r.reject(e)})
     this.requests.delete(key)
-    this.cache.set(key, undefined)
+    this.subscriptions.get(key).set(e)
   }
 
   produce(key:bigint, value:any){
     this.requests.get(key)?.forEach(r=>r.resolve(value))
     this.requests.delete(key)
-    this.cache.set(key, value)
+    if (!this.subscriptions.has(key))
+      this.subscriptions.set(key, new Writable<any>(null))
+    this.subscriptions.get(key)!.set(value)
   }
   
 
+}
+
+
+export function sIf <T> (cond:Writable<boolean>, then:Readable<T>, otherwise?:Readable<T>) : Readable<T | null> {
+
+  let res = new Writable<T | null>(null)
+  cond.subscribe(c=>{
+    if (c) res.set(then.get())
+    else if (otherwise) res.set(otherwise.get())
+    else res.set(null)
+  })
+  then.subscribe(v=>{
+    if (cond.get()) res.set(v)
+    else if (otherwise) res.set(otherwise.get())
+    else res.set(null)
+  })
+  return res
+}
+
+export function sMap <T,U> (source:Readable<T>, mapper:(value:T)=>U) : Readable<U> {
+
+  let res = new Writable<U>(mapper(source.get()))
+  source.subscribe(v=>{
+    res.set(mapper(v))
+  })
+  return res
 }

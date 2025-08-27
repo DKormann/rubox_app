@@ -5,9 +5,6 @@ import { CachedStore, Writable } from "./store";
 
 
 
-type ServerFunction = ( arg:string) => string;
-
-
 export type DBRow<T extends Serial> = {
   get: () => Promise<T>,
   set: (value: T|undefined) => Promise<void>,
@@ -38,7 +35,7 @@ export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
 export type AppHandle<C> = {
   call:(target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
   users:() => Promise<IdString[]>,
-  subscribe:(keyname:string, callback:(value:any)=>void) => void
+  get:(keyname:string) => Promise<Writable<any>>
 }
 
 export type ServerConnection = {
@@ -50,7 +47,6 @@ export type ServerApp<C> = {
   loadApp : (c:DefaultContext) => C
   api: { [key: string]: APIFunction <C> }
 }
-
 
 export type IdString = `id${string}`
 
@@ -64,10 +60,12 @@ export const IdentityFromString = (s:IdString)=>{
 
 
 export function connectServer(url:string, dbname:string, tokenStore:{get:()=>string, set:(value:string)=>void}) : Promise<ServerConnection> {
+  const storeQueue = new CachedStore()
   
   return new Promise<ServerConnection>((resolve, reject) => {
     
-    const storeQueue = new CachedStore()
+
+
 
     DbConnection.builder()
     .withUri(url)
@@ -76,8 +74,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
     .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
       tokenStore.set(token)
-
-      // const storeCache = new Map<bigint, string>();
       const hostCache = new Writable<{[key:string]:true}>({})
 
       conn.subscriptionBuilder()
@@ -100,12 +96,12 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
 
           if (store.owner.data == identity.data){
             try{
+              console.log("inser", store.key, store.content)
               let [data, logs] = JSON.parse(store.content);
               logs.forEach(console.log)
               storeQueue.produce(store.key, data)
-            }catch{
-              console.info("JSON error: "+store.content )
-              storeQueue.produce(store.key, null)
+            }catch (e){
+              console.info("dropped:", store.content)
             }
           }
         })
@@ -126,66 +122,59 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
         `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
       ])
 
-      const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
-
-        let hashed = await hashApp({
-          setup:box.loadApp.toString(),
-          functions: Object.values(box.api).map(fn=>fn.toString())
-        })
-
-        conn.reducers.publish({
-          setup:box.loadApp.toString(),
-          functions: Object.values(box.api).map(fn=>fn.toString())
-        })
 
 
-        let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
+      resolve({
+        identity: IdString(identity),
+        handle : async <C> (box:ServerApp<C>) => {
 
-          return new Promise<any>(async (resolve, reject) => {
-            const argstring = JSON.stringify(arg);
-            const funstring = fn.toString()
+          let appHash = (await hashApp({
+            setup:box.loadApp.toString(),
+            functions: Object.values(box.api).map(fn=>fn.toString())
+          })).hash;
 
-            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
-            const lamH = await hashString(funstring)
-
-            storeQueue.request(callH, {resolve, reject})
-            conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
+          conn.reducers.publish({
+            setup:box.loadApp.toString(),
+            functions: Object.values(box.api).map(fn=>fn.toString())
           })
-        }
 
-        let users : () => Promise<IdString[]> =  () => {
+          return new Promise<AppHandle<C>>((resolve, reject)=>{
+            let hash = appHash.toString()
+            hostCache.subscribe(h=>{if (h[hash])resolve({
+              call: async (target, fn, arg = null) => {
 
-          return new Promise<IdString[]>(async (resolve, reject) => {
-          let sub = conn.subscriptionBuilder()
-          .onApplied(c=>{
-            sub.unsubscribe()
-            resolve(Array.from(c.db.host.iter()).filter(h=>h.app == hashed.hash).map(h=>IdString(h.host)))
+                const argstring = JSON.stringify(arg);
+                const funstring = fn.toString()
+
+                const callH = await hashFunArgs(identity, IdentityFromString(target), appHash, await hashString(funstring), argstring)
+                const lamH = await hashString(funstring)
+
+                console.log("call", callH)
+
+                conn.reducers.callLambda(IdentityFromString(target), appHash, lamH, argstring)
+                return storeQueue.request(callH)
+              },
+              users:() => {
+
+                return new Promise<IdString[]>(async (resolve, reject) => {
+                let sub = conn.subscriptionBuilder()
+                .onApplied(c=>{
+                  sub.unsubscribe()
+                  resolve(Array.from(c.db.host.iter()).filter(h=>h.app == appHash).map(h=>IdString(h.host)))
+                })
+                .onError(reject)
+                .subscribe([`SELECT * FROM host WHERE app = '${appHash}'`,])})
+              },
+              get: async (keyname)=>{
+                const key = await hashStoreKey(identity, appHash, keyname)
+                return storeQueue.subscribe(key)
+              }
+            })})
+            conn.reducers.sethost(appHash, true)
           })
-          .onError(reject)
-          .subscribe([
-            `SELECT * FROM host WHERE app = '${hashed.hash}'`,
-          ])})
+
         }
-
-        let apphandle: AppHandle<C> = {
-          call,
-          users,
-          subscribe: async (keyname:string, callback:(value:string)=>void) => {
-            const key = await hashStoreKey(identity, hashed.hash, keyname)
-            storeQueue.request(key, {resolve:callback})
-          }
-        }
-
-        return new Promise<AppHandle<C>>((resolve, reject)=>{
-          let hash = hashed.hash.toString()
-          hostCache.subscribe(h=>{if (h[hash])resolve(apphandle)})
-          conn.reducers.sethost(hashed.hash, true)
-        })
-
-      }
-
-
-      resolve({identity: IdString(identity), handle})
+      })
    
     }).build()
   })
