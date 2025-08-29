@@ -33,7 +33,33 @@ export class Writable <T> {
   subscribeLater(listener: (value: T) => void){
     this.listeners.push(listener)
   }
+
+  map<U>(mapper:(value:T)=>any){
+    let res = new Writable<U>(mapper(this.value))
+    this.subscribeLater(v=>{
+      res.set(mapper(v))
+    })
+    return res
+  }
+
+  if (then: T, otherwise: T){
+    let res = new Writable<T>(this.value ? then : otherwise)
+    this.subscribeLater(v=>{
+      res.set(v ? then : otherwise)
+    })
+    return res
+  }
+
+  static of <T>(value:Promise<T>){
+    let wr = new Writable<T|null>(null)
+    value.then(v=>wr.set(v))
+    return wr
+  }
 }
+
+
+
+
 
 export class Stored<T> extends Writable<T> {
   key: string

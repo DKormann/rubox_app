@@ -1,8 +1,8 @@
-import { Identity } from "@clockworklabs/spacetimedb-sdk";
+
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
 import { ServerApp, DefaultContext, IdString, ServerConnection } from "../userspace";
-import { sMap, Stored, Writable } from "../store";
+import {  Writable } from "../store";
 
 
 type ChatCtx = {
@@ -55,6 +55,7 @@ export const msgApp : ServerApp<ChatCtx> = {
 
 type ChatService = {
   getName:(id:IdString)=>Writable<string>,
+  setName:(name:string)=>Promise<void>,
   identity:IdString,
 
   sendMessage:(to:IdString, msg:string)=>Promise<void>,
@@ -124,6 +125,11 @@ const doGetChatSerice = (conn:ServerConnection) :Promise<ChatService>=> {
 
     res({
       getName,
+      setName: (name:string)=>{
+        return call(conn.identity, msgApp.api.setname, name).then(()=>{
+          myname.set(name)
+        })
+      },
       identity:conn.identity,
       msgs,
       sendMessage: (to:IdString, msg:string)=>{
@@ -146,10 +152,19 @@ export const chatView : PageComponent = (conn:ServerConnection) => {
   let el = div()
 
   getChatService(conn).then(chatService=>{
-    let nameinp = input()
     el.appendChild(div(
-      p("your name: ", chatService.getName(conn.identity), ),
-      sMap(chatService.msgs, msgs=>{
+      // p("your name: ", chatService.getName(conn.identity), ),
+      p("your name: ", chatService.getName(conn.identity).map(n=>input(n, {
+
+        onkeydown:(e:KeyboardEvent)=>{
+          console.log("input", e)
+          if (e.key == "Enter"){
+            console.log("setname", (e.target as HTMLInputElement).value)
+            chatService.setName((e.target as HTMLInputElement).value)
+          }
+        }
+      })), ),
+      chatService.msgs.map(msgs=>{
         if (!msgs) return p("no messages yet")
         return div(
           ...msgs.map(m=>{

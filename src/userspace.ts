@@ -149,8 +149,6 @@ export function connectServer(url:string, dbname:string, tokenStore:{get:()=>str
                 const callH = await hashFunArgs(identity, IdentityFromString(target), appHash, await hashString(funstring), argstring)
                 const lamH = await hashString(funstring)
 
-                console.log("call", callH)
-
                 conn.reducers.callLambda(IdentityFromString(target), appHash, lamH, argstring)
                 return storeQueue.request(callH)
               },

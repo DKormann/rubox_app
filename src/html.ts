@@ -1,6 +1,6 @@
 import { Writable } from "./store"
 
-export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style'
+export type htmlKey = 'innerText'|'onclick' | 'oninput' | 'onkeydown' |'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style'
 
 export const htmlElement = (tag:string, text:string, cls:string = "", args?:Partial<Record<htmlKey, any>>):HTMLElement =>{
 
@@ -24,7 +24,7 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
         _element.style.setProperty(key, value)
       })
     }else{
-      _element[(key as 'innerText' | 'onclick' | 'id' | 'contentEditable')] = value
+      _element[(key as 'innerText' | 'onclick' | 'oninput' | 'id' | 'contentEditable')] = value
     }
   })
   return _element
