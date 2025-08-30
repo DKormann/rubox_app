@@ -1,52 +1,29 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
-import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
-import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
+import { App, AppData, DbConnection, Host, Lambda, Return, Store, Notification } from "./module_bindings";
+import { hashApp, HashedApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
 import { CachedStore, Writable } from "./store";
 
 
-
-export type DBRow<T extends Serial> = {
-  get: () => Promise<T>,
-  set: (value: T|undefined) => Promise<void>,
-  update: (func: (value: T) => T|undefined) => Promise<void>,
-  delete: () => Promise<void>
-}
-
-export type DBTable <T extends Serial> = DBRow<T> & {
-  other: DBRow<T>,
-}
-
-
 export type DefaultContext = {
+  DB:{
+    get: <T> (fromMe: boolean, key:string) => T,
+    set: <T> (fromMe: boolean, key:string, value:T) => void,
+  }
   self: IdString,
   other: IdString,
-
-  DB: {
-    get: <T> (from_me:boolean, key:string) => T,
-    set: <T> (from_me:boolean, key:string, value:T) => void,
-  }
+  notify: (payload:Serial) => void,
 }
 
 export type Serial = string | number | boolean | null | Serial [] | { [key: string]: Serial } | [Serial, Serial]
 
-
 export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
-
-export type AppHandle<C> = {
-  call:(target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
-  users:() => Promise<IdString[]>,
-  get:(keyname:string) => Promise<Writable<any>>
-}
-
-export type ServerConnection = {
-  identity:IdString,
-  handle:<C>(box:ServerApp<C>) => Promise<AppHandle<C>>,
-}
+export type ClientFunction = (arg:Serial) => void
 
 export type ServerApp<C> = {
   loadApp : (c:DefaultContext) => C
   api: { [key: string]: APIFunction <C> }
 }
+
 
 export type IdString = `id${string}`
 
@@ -54,129 +31,109 @@ export const IdString = (id:Identity)=>{
   return 'id'+id.toHexString() as IdString
 }
 
-export const IdentityFromString = (s:IdString)=>{
-  return new Identity(s.slice(2))
-}
+export const IdentityFromString = (s:IdString)=> new Identity(s.slice(2))
 
+export class ServerConnection <C> {
 
-export function connectServer(url:string, dbname:string, tokenStore:{get:()=>string, set:(value:string)=>void}) : Promise<ServerConnection> {
-  const storeQueue = new CachedStore()
+  private conn: DbConnection
+  private callQueue: Map<number, [( value:any ) => void, ( e:Error ) => void]> = new Map()
+  private callCounter: number
   
-  return new Promise<ServerConnection>((resolve, reject) => {
+
+  constructor(
+    conn: DbConnection,
+    private hashedApp: HashedApp,
+    public identity: Identity,
+
+  ){
+    this.conn = conn
+    this.callQueue = new Map()
+    this.callCounter = 0
+  }
+
+  async call (target:IdString, fn:APIFunction<C>, arg?:Serial) : Promise<Serial> {
+
+  
+    let res = new Promise<Serial>( ( resolve, reject ) => {
+      this.callQueue.set(this.callCounter, [resolve, reject])
+    })
     
+    this.conn.reducers.callLambda(
+      IdentityFromString(target),
+      this.hashedApp.hash,
+      await hashString(fn.toString()),
+      this.callCounter,
+      JSON.stringify(arg ?? null))
+    
+    this.callCounter += 1
+    return await res
+  }
 
+  users () : Promise<IdString[]> {
 
+    return new Promise<IdString[]>((resolve, reject) => {
+      this.conn.subscriptionBuilder()
 
-    DbConnection.builder()
-    .withUri(url)
-    .withModuleName(dbname)
-    .withToken(tokenStore.get())
-    .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
+    })
 
-      tokenStore.set(token)
-      const hostCache = new Writable<{[key:string]:true}>({})
+  }
 
-      conn.subscriptionBuilder()
-      .onApplied(c=>{
+  static async connect <C> (
+    url:string,
+    dbname:string,
+    tokenStore:{get:()=>string, set:(value:string)=>void},
+    box: ServerApp<C>,
+    onNotify: (payload:Serial, sender: Identity)=>void = ()=>{}
 
-        console.log("APPLIED")
-        
-        c.db.host.onInsert((c,host:Host)=>{
+  ) : Promise<ServerConnection<C>> {
+    const storeQueue = new CachedStore()
+  
+    return new Promise<ServerConnection<C>>((resolve, reject) => {
+      DbConnection.builder()
+      .withUri(url)
+      .withModuleName(dbname)
+      .withToken(tokenStore.get())
+      .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
-          if (host.host.data == identity.data){
-            hostCache.update(h=>{
-              h[host.app.toString()] = true
-              return h
-            },true)
-          }
+        let result = new ServerConnection<C>(
+          conn,
           
-        })
-
-        c.db.store.onInsert((c,store)=>{
-
-          if (store.owner.data == identity.data){
-            try{
-              console.log("inser", store.key, store.content)
-              let [data, logs] = JSON.parse(store.content);
-              logs.forEach(console.log)
-              storeQueue.produce(store.key, data)
-            }catch (e){
-              console.info("dropped:", store.content)
-            }
-          }
-        })
-
-        c.db.store.onUpdate((c,old,news)=>{
-          if (news.owner.data == identity.data){
-            storeQueue.produce(news.key, JSON.parse(news.content))
-          }
-        })
-
-      })
-      .onError(console.error)
-      
-      .subscribe([
-        `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
-        `SELECT * FROM app`,
-        `SELECT * FROM lambda`,
-        `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
-      ])
-
-
-
-      resolve({
-        identity: IdString(identity),
-        handle : async <C> (box:ServerApp<C>) => {
-
-          let appHash = (await hashApp({
+          await hashApp({
             setup:box.loadApp.toString(),
             functions: Object.values(box.api).map(fn=>fn.toString())
-          })).hash;
+          }),
+          identity);
 
-          conn.reducers.publish({
-            setup:box.loadApp.toString(),
-            functions: Object.values(box.api).map(fn=>fn.toString())
-          })
-
-          return new Promise<AppHandle<C>>((resolve, reject)=>{
-            let hash = appHash.toString()
-            hostCache.subscribe(h=>{if (h[hash])resolve({
-              call: async (target, fn, arg = null) => {
-
-                const argstring = JSON.stringify(arg);
-                const funstring = fn.toString()
-
-                const callH = await hashFunArgs(identity, IdentityFromString(target), appHash, await hashString(funstring), argstring)
-                const lamH = await hashString(funstring)
-
-                conn.reducers.callLambda(IdentityFromString(target), appHash, lamH, argstring)
-                return storeQueue.request(callH)
-              },
-              users:() => {
-
-                return new Promise<IdString[]>(async (resolve, reject) => {
-                let sub = conn.subscriptionBuilder()
-                .onApplied(c=>{
-                  sub.unsubscribe()
-                  resolve(Array.from(c.db.host.iter()).filter(h=>h.app == appHash).map(h=>IdString(h.host)))
-                })
-                .onError(reject)
-                .subscribe([`SELECT * FROM host WHERE app = '${appHash}'`,])})
-              },
-              get: async (keyname)=>{
-                const key = await hashStoreKey(identity, appHash, keyname)
-                return storeQueue.subscribe(key)
-              }
-            })})
-            conn.reducers.sethost(appHash, true)
-          })
-
+        const handleReturn = (ret:Return) => {
+          let val = JSON.parse(ret.content)
+          result.callQueue.get(ret.id)?.[0](val)
+          result.callQueue.delete(ret.id)
         }
+
+        const handleNotify = (note:Notification) => {
+          let val = JSON.parse(note.arg)
+          onNotify(val, note.sender)
+        }
+
+        conn.subscriptionBuilder()
+
+        .onApplied(c=>{
+          c.db.returns.onInsert((c, ret:Return)=>{handleReturn(ret)})
+          c.db.returns.onUpdate((c, old, ret)=>{handleReturn(ret)})
+          c.db.notification.onInsert((c, note:Notification)=>{handleNotify(note)})
+          c.db.notification.onUpdate((c, old, note)=>{handleNotify(note)})
+        })
+        .onError(console.error)
+        .subscribe([
+          `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
+          `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`,
+        ])
+
+
+        tokenStore.set(token)
+        resolve(result)
       })
-   
-    }).build()
-  })
+    })
+  }
   
 }
-
-

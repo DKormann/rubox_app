@@ -30,34 +30,38 @@ import {
   Timestamp,
   deepEqual,
 } from "@clockworklabs/spacetimedb-sdk";
-
-export type Sethost = {
+export type Notification = {
+  target: Identity,
   app: bigint,
-  value: boolean,
+  sender: Identity,
+  arg: string,
 };
 
 /**
  * A namespace for generated helper functions.
  */
-export namespace Sethost {
+export namespace Notification {
   /**
   * A function which returns this type represented as an AlgebraicType.
   * This function is derived from the AlgebraicType used to generate this type.
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
+      new ProductTypeElement("target", AlgebraicType.createIdentityType()),
       new ProductTypeElement("app", AlgebraicType.createU256Type()),
-      new ProductTypeElement("value", AlgebraicType.createBoolType()),
+      new ProductTypeElement("sender", AlgebraicType.createIdentityType()),
+      new ProductTypeElement("arg", AlgebraicType.createStringType()),
     ]);
   }
 
-  export function serialize(writer: BinaryWriter, value: Sethost): void {
-    Sethost.getTypeScriptAlgebraicType().serialize(writer, value);
+  export function serialize(writer: BinaryWriter, value: Notification): void {
+    Notification.getTypeScriptAlgebraicType().serialize(writer, value);
   }
 
-  export function deserialize(reader: BinaryReader): Sethost {
-    return Sethost.getTypeScriptAlgebraicType().deserialize(reader);
+  export function deserialize(reader: BinaryReader): Notification {
+    return Notification.getTypeScriptAlgebraicType().deserialize(reader);
   }
 
 }
+
 

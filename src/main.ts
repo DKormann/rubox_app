@@ -9,14 +9,11 @@ import { chessView } from "./clients/chess"
 
 import { button, div, h2, p } from "./html"
 import { Stored } from "./store"
-import { connectServer, ServerConnection } from "./userspace"
+import { ServerConnection } from "./userspace"
 import {chessView as chessView2} from "./clients/chess2"
 
 
-export type PageComponent = (server:ServerConnection) => HTMLElement
-
-
-
+export type PageComponent = (server:ServerConnection<any>) => HTMLElement
 
 
 

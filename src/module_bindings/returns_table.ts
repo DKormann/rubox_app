@@ -30,23 +30,23 @@ import {
   Timestamp,
   deepEqual,
 } from "@clockworklabs/spacetimedb-sdk";
-import { Store } from "./store_type";
+import { Return } from "./return_type";
 import { EventContext, Reducer, RemoteReducers, RemoteTables } from ".";
 
 /**
- * Table handle for the table `store`.
+ * Table handle for the table `returns`.
  *
- * Obtain a handle from the [`store`] property on [`RemoteTables`],
- * like `ctx.db.store`.
+ * Obtain a handle from the [`returns`] property on [`RemoteTables`],
+ * like `ctx.db.returns`.
  *
  * Users are encouraged not to explicitly reference this type,
  * but to directly chain method calls,
- * like `ctx.db.store.on_insert(...)`.
+ * like `ctx.db.returns.on_insert(...)`.
  */
-export class StoreTableHandle {
-  tableCache: TableCache<Store>;
+export class ReturnsTableHandle {
+  tableCache: TableCache<Return>;
 
-  constructor(tableCache: TableCache<Store>) {
+  constructor(tableCache: TableCache<Return>) {
     this.tableCache = tableCache;
   }
 
@@ -54,53 +54,53 @@ export class StoreTableHandle {
     return this.tableCache.count();
   }
 
-  iter(): Iterable<Store> {
+  iter(): Iterable<Return> {
     return this.tableCache.iter();
   }
   /**
-   * Access to the `key` unique index on the table `store`,
+   * Access to the `owner` unique index on the table `returns`,
    * which allows point queries on the field of the same name
-   * via the [`StoreKeyUnique.find`] method.
+   * via the [`ReturnsOwnerUnique.find`] method.
    *
    * Users are encouraged not to explicitly reference this type,
    * but to directly chain method calls,
-   * like `ctx.db.store.key().find(...)`.
+   * like `ctx.db.returns.owner().find(...)`.
    *
-   * Get a handle on the `key` unique index on the table `store`.
+   * Get a handle on the `owner` unique index on the table `returns`.
    */
-  key = {
-    // Find the subscribed row whose `key` column value is equal to `col_val`,
+  owner = {
+    // Find the subscribed row whose `owner` column value is equal to `col_val`,
     // if such a row is present in the client cache.
-    find: (col_val: bigint): Store | undefined => {
+    find: (col_val: Identity): Return | undefined => {
       for (let row of this.tableCache.iter()) {
-        if (deepEqual(row.key, col_val)) {
+        if (deepEqual(row.owner, col_val)) {
           return row;
         }
       }
     },
   };
 
-  onInsert = (cb: (ctx: EventContext, row: Store) => void) => {
+  onInsert = (cb: (ctx: EventContext, row: Return) => void) => {
     return this.tableCache.onInsert(cb);
   }
 
-  removeOnInsert = (cb: (ctx: EventContext, row: Store) => void) => {
+  removeOnInsert = (cb: (ctx: EventContext, row: Return) => void) => {
     return this.tableCache.removeOnInsert(cb);
   }
 
-  onDelete = (cb: (ctx: EventContext, row: Store) => void) => {
+  onDelete = (cb: (ctx: EventContext, row: Return) => void) => {
     return this.tableCache.onDelete(cb);
   }
 
-  removeOnDelete = (cb: (ctx: EventContext, row: Store) => void) => {
+  removeOnDelete = (cb: (ctx: EventContext, row: Return) => void) => {
     return this.tableCache.removeOnDelete(cb);
   }
 
   // Updates are only defined for tables with primary keys.
-  onUpdate = (cb: (ctx: EventContext, oldRow: Store, newRow: Store) => void) => {
+  onUpdate = (cb: (ctx: EventContext, oldRow: Return, newRow: Return) => void) => {
     return this.tableCache.onUpdate(cb);
   }
 
-  removeOnUpdate = (cb: (ctx: EventContext, onRow: Store, newRow: Store) => void) => {
+  removeOnUpdate = (cb: (ctx: EventContext, onRow: Return, newRow: Return) => void) => {
     return this.tableCache.removeOnUpdate(cb);
   }}
