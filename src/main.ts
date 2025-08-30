@@ -4,7 +4,7 @@ export {}
 
 
 [].reduce((a, b) => a + b, "")
-import { chatView } from "./clients/chatbox"
+import { ChatService } from "./clients/chatbox"
 import { chessView } from "./clients/chess"
 
 import { button, div, h2, p } from "./html"
@@ -69,78 +69,82 @@ const body = document.body;
 body.appendChild(h2("loading..."))
 
 
+const chat = ChatService.connect(serverurl)
 
-connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
+console.log("chat", chat)
+
+
+// connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
   
 
-  const home = () => div(
-    h2("welcome to the rubox"),
-    p("This is a simple app to demonstrate the use of the Rubox framework."),
+//   const home = () => div(
+//     h2("welcome to the rubox"),
+//     p("This is a simple app to demonstrate the use of the Rubox framework."),
 
-    ...apps.filter(x=>x.path).map(app => p(
-      button(app.path, {
-        onclick: () => {
-          route(app.path.split('/'))
-        }
-      })
-    ))
-  )
-
-
-  const apps : {
-    init: (server:ServerConnection) => HTMLElement,
-    path: string,
-    cache? : HTMLElement
-  }[] = [
-    {init: home, path: "", cache: undefined},
-    {init: (server)=>chatView(server), path: "chat", cache: undefined},
-    // {init: (server)=>chessView(server), path: "chess", cache: undefined},
-    {init: (server)=>chessView2(server), path: "chess", cache: undefined},
-
-  ]
-
-  route(location.path)
+//     ...apps.filter(x=>x.path).map(app => p(
+//       button(app.path, {
+//         onclick: () => {
+//           route(app.path.split('/'))
+//         }
+//       })
+//     ))
+//   )
 
 
-  window.addEventListener("popstate", (e) => {
-    location = getLocation() 
-    route(location.path)
-  })
+//   const apps : {
+//     init: (server:ServerConnection) => HTMLElement,
+//     path: string,
+//     cache? : HTMLElement
+//   }[] = [
+//     {init: home, path: "", cache: undefined},
+//     {init: (server)=>chatView(server), path: "chat", cache: undefined},
+//     // {init: (server)=>chessView(server), path: "chess", cache: undefined},
+//     {init: (server)=>chessView2(server), path: "chess", cache: undefined},
+
+//   ]
+
+//   route(location.path)
 
 
-  function route(path: string[]){
+//   window.addEventListener("popstate", (e) => {
+//     location = getLocation() 
+//     route(location.path)
+//   })
 
-    let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
-    newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
+
+//   function route(path: string[]){
+
+//     let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
+//     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
     
-    window.history.pushState({}, "", newpath)
-    body.innerHTML = ''
-    body.appendChild(div(
-      {style:{
-        "max-width": "20em",
-        position: "absolute",
-        top: "0",
-        left: "1em",
-        cursor: "pointer",
-      },
-        onclick: () => {
-          route([])
-        }},
-      h2("rubox"),
+//     window.history.pushState({}, "", newpath)
+//     body.innerHTML = ''
+//     body.appendChild(div(
+//       {style:{
+//         "max-width": "20em",
+//         position: "absolute",
+//         top: "0",
+//         left: "1em",
+//         cursor: "pointer",
+//       },
+//         onclick: () => {
+//           route([])
+//         }},
+//       h2("rubox"),
 
-    ))
-    body.style.fontFamily = "monospace"
-    body.style.textAlign = "center"
-    for (const app of apps){
-      if (app.path === path.join('/')){
-        if (!app.cache){
-          app.cache = app.init(server)
-        }
-        body.appendChild(app.cache)
-      }
-    }
-  }
+//     ))
+//     body.style.fontFamily = "monospace"
+//     body.style.textAlign = "center"
+//     for (const app of apps){
+//       if (app.path === path.join('/')){
+//         if (!app.cache){
+//           app.cache = app.init(server)
+//         }
+//         body.appendChild(app.cache)
+//       }
+//     }
+//   }
 
 
 
-})
+// })

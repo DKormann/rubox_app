@@ -43,12 +43,15 @@ export class ServerConnection <C> {
   constructor(
     conn: DbConnection,
     private hashedApp: HashedApp,
-    public identity: Identity,
+    public identity: IdString,
 
   ){
     this.conn = conn
     this.callQueue = new Map()
     this.callCounter = 0
+
+    this.conn.reducers.sethost(this.hashedApp.hash, true)
+
   }
 
   async call (target:IdString, fn:APIFunction<C>, arg?:Serial) : Promise<Serial> {
@@ -74,6 +77,12 @@ export class ServerConnection <C> {
     return new Promise<IdString[]>((resolve, reject) => {
       this.conn.subscriptionBuilder()
 
+      .onApplied(c=>{
+        resolve(Array.from(c.db.host.iter()).filter(h=>h.app == this.hashedApp.hash).map(h=>IdString(h.host)))
+      })
+      .onError(reject)
+      .subscribe([`SELECT * FROM host WHERE app = '${this.hashedApp.hash}'`])
+
     })
 
   }
@@ -86,29 +95,44 @@ export class ServerConnection <C> {
     onNotify: (payload:Serial, sender: Identity)=>void = ()=>{}
 
   ) : Promise<ServerConnection<C>> {
-    const storeQueue = new CachedStore()
   
     return new Promise<ServerConnection<C>>((resolve, reject) => {
       DbConnection.builder()
       .withUri(url)
       .withModuleName(dbname)
       .withToken(tokenStore.get())
+      .onConnectError(console.error)
       .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
+
+
+        const appData = {
+          setup:box.loadApp.toString(),
+          functions: Object.values(box.api).map(fn=>fn.toString())
+        }
+
+        conn.reducers.publish(appData)
 
         let result = new ServerConnection<C>(
           conn,
+
+
           
-          await hashApp({
-            setup:box.loadApp.toString(),
-            functions: Object.values(box.api).map(fn=>fn.toString())
-          }),
-          identity);
+          await hashApp(appData),
+          IdString(identity));
 
         const handleReturn = (ret:Return) => {
+
+
           let val = JSON.parse(ret.content)
           result.callQueue.get(ret.id)?.[0](val)
           result.callQueue.delete(ret.id)
         }
+
+        conn.reducers.onCallLambda((c, o, a, l, id, arg)=>{
+          if (c.event.status.tag == "Failed") {
+            result.callQueue.get(id)?.[1](new Error(c.event.status.value))
+          }
+        })
 
         const handleNotify = (note:Notification) => {
           let val = JSON.parse(note.arg)
@@ -133,6 +157,7 @@ export class ServerConnection <C> {
         tokenStore.set(token)
         resolve(result)
       })
+      .build()
     })
   }
   

@@ -1,8 +1,10 @@
 
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
-import { ServerApp, DefaultContext, IdString, ServerConnection } from "../userspace";
-import {  Writable } from "../store";
+import { ServerApp, DefaultContext, IdString, ServerConnection, Serial } from "../userspace";
+import {  Stored, Writable } from "../store";
+
+
 
 
 type ChatCtx = {
@@ -37,7 +39,6 @@ export const msgApp : ServerApp<ChatCtx> = {
     },
 
     getname:(ctx,arg)=>{
-      let a = 2;
       return ctx.DB.get(false, "name")
     },
 
@@ -53,133 +54,46 @@ export const msgApp : ServerApp<ChatCtx> = {
 }
 
 
-type ChatService = {
-  getName:(id:IdString)=>Writable<string>,
-  setName:(name:string)=>Promise<void>,
-  identity:IdString,
-
-  sendMessage:(to:IdString, msg:string)=>Promise<void>,
-  msgs:Writable<Msg[]>,
-}
-
-let chatService : null | ChatService = null;
+export class ChatService {
+  constructor(
+    public server : ServerConnection<ChatCtx>
+  ){
 
 
-export const getChatService = async (conn:ServerConnection)=>{
-  if (!chatService) {
-    chatService = await doGetChatSerice(conn)
+    console.log("ChatService", this.server.identity)
+
+    this.server.users().then(us=>{
+      console.log("users", us)
+    })
+
+    this.setName("meeeee").then(()=>{
+
+      this.server.call(this.server.identity, msgApp.api.getname).then(n=>{
+        console.log("getName done", n)
+      })
+
+    })
   }
-  return chatService
-  
-}
 
 
+  getName(id:IdString):Writable<string> {
+    return new Writable<string>(id)
+  }
 
-const doGetChatSerice = (conn:ServerConnection) :Promise<ChatService>=> {
-
-  return new Promise((res, rej)=>{
-  conn.handle(msgApp).then(async ({call, users, get})=>{
-
-    let nametable = new Map<IdString, Writable<string>> ()
-    const getName = (id:IdString) =>{
-      if (!nametable.has (id)){
-        let wr = new Writable<string> ("loading name ...")
-        nametable.set(id, wr)
-        call(id, msgApp.api.getname).then(n=>{
-          console.log("uname:", n)
-          wr.set(n)
-        })
-      }
-      return nametable.get(id)
-    }
-
-    const myname = getName(conn.identity)
+  async setName(name:string):Promise<void> {
+    await this.server.call(this.server.identity, msgApp.api.setname, name)
+  }
 
 
-    myname.subscribe(n=>{
-      console.log("myname:", n)
-      if (!n){
-        let inp = input()
-        inp.placeholder = "username"
-        let pn = popup(div(
-          h2("Enter your username"),
-          inp,
-          button("set", {onclick:()=>{
-            call(conn.identity, msgApp.api.setname, inp.value).then(()=>{
-              myname.set(inp.value)
-              pn.remove()
-            })
-            .catch(e=>{
-              console.error(e)
-            })
-          }})
-        ))
-      }
-    })
+  static async connect(url:string):Promise<ChatService> {
+    let server = await ServerConnection.connect(url,
+      "rubox",
+      new Stored<string>("rubox-token-"+url, ''), msgApp,
+      (note:Serial)=>{
+        console.log("notify", note)
+      });
 
-    let msgs = await get("messages");
+    return new ChatService(server)
+  }
 
-    await call(conn.identity, msgApp.api.getMessages).then(m=>{
-      if (m) msgs.set(m)
-    })
-
-    res({
-      getName,
-      setName: (name:string)=>{
-        return call(conn.identity, msgApp.api.setname, name).then(()=>{
-          myname.set(name)
-        })
-      },
-      identity:conn.identity,
-      msgs,
-      sendMessage: (to:IdString, msg:string)=>{
-        return call(to, msgApp.api.sendMessage, msg)
-      }
-    })
-
-  })})
-
-}
-
-
-
-
-export const chatView : PageComponent = (conn:ServerConnection) => {
-
-
-  let adis = p()
-
-  let el = div()
-
-  getChatService(conn).then(chatService=>{
-    el.appendChild(div(
-      // p("your name: ", chatService.getName(conn.identity), ),
-      p("your name: ", chatService.getName(conn.identity).map(n=>input(n, {
-
-        onkeydown:(e:KeyboardEvent)=>{
-          console.log("input", e)
-          if (e.key == "Enter"){
-            console.log("setname", (e.target as HTMLInputElement).value)
-            chatService.setName((e.target as HTMLInputElement).value)
-          }
-        }
-      })), ),
-      chatService.msgs.map(msgs=>{
-        if (!msgs) return p("no messages yet")
-        return div(
-          ...msgs.map(m=>{
-            return p(
-              m.sender == conn.identity ? "me" : chatService.getName(m.sender),
-              ": ", m.message
-            )
-          })
-        )
-      }),
-      button("say hi", {onclick:()=>{
-        chatService.sendMessage(chatService.identity, "hi!")
-      }}),
-    ))
-  })
-
-  return el
 }
