@@ -1,4 +1,4 @@
-import {div} from "../html"
+import {button, div, h2, p, popup} from "../html"
 import { PageComponent } from "../main"
 import { Writable } from "../store"
 import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
@@ -14,9 +14,11 @@ type Piece = {
 type Pos = number;
 
 
-type Board = (Piece | null)[]; // 80x represents whole board
+type Board = (Piece | null)[];
 
 type Match = {
+  white: IdString
+  black: IdString
   board: Board
   turn: "white" | "black"
   winner: "white" | "black" | "draw" | null
@@ -30,7 +32,7 @@ type Move = {
 }
 
 
-let chessCtx : ServerApp <ChessContext> = {
+let chessApp : ServerApp <ChessContext> = {
 
   loadApp : (c:DefaultContext)=>{
 
@@ -65,7 +67,7 @@ let chessCtx : ServerApp <ChessContext> = {
     function hasKing(board:Board, color:"white"|"black"):boolean{
       return board.filter((p, i)=> p && p.type == "king" && p.color == color).length > 0
     }
-    
+
     let left = 1
     let right = -left
     function directions(p:Piece):number[]{
@@ -157,9 +159,10 @@ let chessCtx : ServerApp <ChessContext> = {
 
 
       let resMatch: Match = {
+        ...m,
         board: newBoard,
         turn: m.turn == "white" ? "black" : "white",
-        winner: null
+        winner: null,
       }
 
       
@@ -196,7 +199,57 @@ let chessCtx : ServerApp <ChessContext> = {
     },
     mkMove: (c, arg:[Match, Move])=>{
       return c.makeMove(arg[0], arg[1])
-    }
+    },
+
+    openGame: (c, arg:null)=>{
+      let m : Match = {
+        board: c.startBoard,
+        turn: "white",
+        winner: null,
+        white: c.self,
+        black: c.other,
+      }
+      
+      c.DB.set(true, "game", m)
+      c.DB.set(true, "playLocation", c.self)
+      let invs = c.DB.get(false, "invitations")  as IdString[]
+      c.DB.set(false, "invitations", [...invs, m])
+    },
+
+    getLoc: (c, arg:null)=>{
+      return c.DB.get(false, "playLocation")
+    },
+
+    getGame: (c, arg:null)=>{
+      return c.DB.get(false, "game")
+    },
+
+    submitMove: (c, arg:Move)=>{
+      let game = c.DB.get(false, "game") as Match
+      if (!game) {return {error:"no game"}}
+      if (game.white != c.self && game.black != c.self) {return {error:"not your game"}}
+      let mycolor = game.white == c.self ? "white" : "black"
+      if (game.turn != mycolor) {return {error:"not your turn"}}
+
+      let [error, next] = c.makeMove(game, arg)
+      if (error) {return {error, next}}
+      c.DB.set(false, "game", next)
+      return {error, next}
+    },
+      
+
+    getInvitations: (c, arg:null)=>{
+      return c.DB.get(true, "invitations")  as IdString[]
+    },
+
+    acceptInvitation: (c, arg:IdString)=>{
+      let otherloc = c.DB.get(false, "playLocation")
+      if (otherloc != c.self) {
+        return "invitation expired"
+      }
+      c.DB.set(true, "playLocation", c.other)
+      return "ok"
+    },
   }
 }
 
@@ -294,10 +347,15 @@ let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
 
 export let chessView : PageComponent = (conn:ServerConnection) => {
 
-  let ctx = chessCtx.loadApp(undefined);
+  let ctx = chessApp.loadApp(undefined);
 
+  let el = div({class:"chess-container"})
 
   let m : Match = {
+
+    white: conn.identity,
+    black: null,
+
     board: ctx.startBoard,
     turn: "white",
     winner: null
@@ -326,6 +384,25 @@ export let chessView : PageComponent = (conn:ServerConnection) => {
     //   displayBoard(m)
     // })
 
+    el.appendChild(div(
+
+      h2("chess game"),
+      p("opponent: ", opponent),
+      chessBoard,
+      p(),
+      button("join game", {
+        onclick:()=>{
+          popup(
+            div(
+              h2("create a game"),
+              users().then(us=>us.map(u=>callChat(u, msgApp.api.getname, null).then(nm=>
+                button(nm)
+              )))
+            )
+          )
+        }
+      })
+    ))
   })
 
 

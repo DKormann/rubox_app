@@ -15,7 +15,7 @@ type Msg = {
   message:string
 }
 
-const msgApp : ServerApp<ChatCtx> = {
+export const msgApp : ServerApp<ChatCtx> = {
   loadApp: (c:DefaultContext) => {
     return {
 

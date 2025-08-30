@@ -131,6 +131,7 @@ export const popup = (dialogfield: HTMLElement)=>{
       "display": "flex",
       "justify-content": "center",
       "align-items": "center",
+
     }}
   )
 
@@ -145,6 +146,7 @@ export const popup = (dialogfield: HTMLElement)=>{
   dialogfield.style.padding = "1em"
   dialogfield.style.paddingBottom = "2em"
   dialogfield.style.borderRadius = "1em"
+
 
   // popupbackground.appendChild(p("close", {
   //   onclick: () => {

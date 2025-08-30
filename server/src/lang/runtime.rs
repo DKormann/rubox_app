@@ -333,6 +333,23 @@ pub fn do_eval(
                       _=>return Err("attempted to reduce a non-function value".into())
                     }
                   }
+                  Method::ArrayReduce=>{
+                    let fun = arg_vals.get(0).ok_or(format!("attempted to reduce a non-function value"))?;
+                    let mut acc: Rc<Value> = arg_vals.get(1).cloned().ok_or(format!("attempted to reduce an empty array"))?;
+
+                    // let funev = do_eval(fun, env, native_fns.clone(), logs)?;
+                    match fun.as_ref() {
+                      Value::Closure(cl)=>{
+
+                        for v in self_arr {
+                          let res = run_closure(&cl, vec![acc.clone(), v.clone()], env, native_fns.clone(), logs)?;
+                          acc = res;
+                        }
+                        return Ok(acc)
+                      }
+                      _=>return Err("attempted to reduce a non-function value".into())
+                    }
+                  },
                   _=>return Err(format!("method {:?} not found on array", method))
                 }
               },
@@ -473,7 +490,7 @@ pub fn do_eval(
             use std::convert::TryFrom;
             let i: i32 = i32::try_from(idx_val.as_ref()).map_err(|_| "index must be an Int")?;
             if i < 0 || (i as usize) >= items.len() {
-              return Err("index out of bounds".into());
+              return Ok(v(Value::Undefined));
             }
             Ok(items[i as usize].clone())
           }
