@@ -1,8 +1,8 @@
 import {button, div, h2, input, p, popup} from "../html"
 import { PageComponent } from "../main"
-import { Writable } from "../store"
-import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
-import { msgApp } from "./chatbox"
+import { Stored, Writable } from "../store"
+import { DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
+import { ChatService, msgApp } from "./chatbox"
 
 
 type PieceType = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king" | "kingmoved" | "rookmoved" | "pawnmoved" | "pawnmoveddouble"
@@ -19,6 +19,8 @@ type Board = (Piece | null)[]; // 80x represents whole board
 
 type Match = {
   board: Board
+  white: IdString
+  black: IdString
   turn: "white" | "black"
   winner: "white" | "black" | "draw" | null
 }
@@ -31,11 +33,9 @@ type Move = {
 }
 
 
-let chessCtx : ServerApp <ChessContext> = {
+let chessApp : ServerApp <ChessContext> = {
 
   loadApp : (c:DefaultContext)=>{
-
-
 
     let startBoard : Board = [
       {type:"rook", color:"white"}, {type:"knight", color:"white"}, {type:"bishop", color:"white"}, {type:"queen", color:"white"}, {type:"king", color:"white"}, {type:"bishop", color:"white"}, {type:"knight", color:"white"}, {type:"rook", color:"white"}, null, null,
@@ -59,7 +59,6 @@ let chessCtx : ServerApp <ChessContext> = {
     function arrSet<S>(arr:S[], index:number, value:S):S[]{
       return arr.map((v,i)=>i==index?value:v)
     }
-
 
     let setPieceAt = (pos:Pos, piece:Piece|null)=>(board:Board):Board=>{
       return arrSet(board, pos, piece)
@@ -158,6 +157,8 @@ let chessCtx : ServerApp <ChessContext> = {
 
 
       let resMatch: Match = {
+        white: m.white,
+        black: m.black,
         board: newBoard,
         turn: m.turn == "white" ? "black" : "white",
         winner: null
@@ -188,17 +189,46 @@ let chessCtx : ServerApp <ChessContext> = {
   },
   api: {
 
-    getstartBoard: (c, arg)=>{
-      let b = c.startBoard
-      return b
+    startMatch: (c, arg)=>{
+
+      let match: Match = {
+        white: c.self,
+        black: c.other,
+        board: c.startBoard,
+        turn: "white",
+        winner: null
+      };
+
+      if (c.DB.get(true, "active_match")){
+        return "already playing"
+      }
+
+      if (c.DB.get(false, "active_match")){
+        return "opponent already playing"
+      }
+
+      c.DB.set(true, "active_match", c.self)
+      c.DB.set(false, "active_match", c.self)
+
+      c.DB.set(true, "match_data", match)
+
+      return "error not implemented2"
+
     },
 
-    getMoves: (c, arg)=>{
-      return c.getLegalMoves(c.startBoard,10)
+    getActiveMatch: (c, arg)=>{
+      return c.DB.get(true, "active_match")
     },
-    mkMove: (c, arg:[Match, Move])=>{
+
+    getMatch: (c, arg)=>{
+      return c.DB.get(false, "match_data")
+    },
+
+    makeMove: (c, arg)=>{
       return c.makeMove(arg[0], arg[1])
-    }
+    },
+
+    
   }
 }
 
@@ -223,23 +253,22 @@ let pieceImages = {
 }
 
 let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6
-let chessBoard = div({class:"chessboard",style:{
-  backgroundColor: "#f0d9b5",
-  width: boardSize + "px",
-  height: boardSize + "px",
-  margin: "auto",
-  position: "relative",
-  cursor: "pointer",
-}})
 
 
 
 let focuspos = 0
 
-let opponentId = new Writable<IdString|null>(null);
+let displayBoard = (m:Match, onMove: (m:Move)=>void)=>{
 
-let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
-
+  let chessBoard = div({class:"chessboard",style:{
+    backgroundColor: "#f0d9b5",
+    width: boardSize + "px",
+    height: boardSize + "px",
+    margin: "auto",
+    position: "relative",
+    cursor: "pointer",
+  }})
+  
 
   chessBoard.innerHTML = ""
 
@@ -266,9 +295,8 @@ let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
         end: n,
         promo: null
       };
-      let [error, next]: [string, Match] = await app.call(opponentId.get(), chessCtx.api.mkMove, [m, move])
+      onMove(move)
       focuspos = focuspos == n ? null : n
-      displayBoard(error ? m : next, app)
     }})
 
     let piece = m.board[n]
@@ -290,102 +318,105 @@ let displayBoard = (m:Match, app:AppHandle<ChessContext>)=>{
     return x > 7 ? div() : square
 
   })))
+
+  return chessBoard
 }
 
 
 
-export let chessView : PageComponent = (conn:ServerConnection) => {
-
-  let ctx = chessCtx.loadApp(undefined);
+type ChessNotification = ["new move", Match]
 
 
-  let m : Match = {
-    board: ctx.startBoard,
-    turn: "white",
-    winner: null
-  }
+export class ChessService {
+  active_partner: Writable<IdString>
 
-  let el = div(h2("loading chess..."))
+  match : Writable<Match> = new Writable<Match>(undefined)
 
-  Promise.all([conn.handle(chessCtx), conn.handle(msgApp)]).then(async ([app, socialApp])=>
-  {
+  chatService : Promise<ChatService>
 
-    opponentId.set(conn.identity);
+  constructor(
+    public server : ServerConnection<ChessContext>
+  ){
 
-    app.call(conn.identity, chessCtx.api.getstartBoard, null).then((m)=>{
-      let b:Match = {
-        board: m,
-        turn: "white",
-        winner: null
-      }
-      displayBoard(b, app)
+    this.active_partner = new Stored<IdString>( `chess_partner_${this.server.identity}`, this.server.identity)
 
+    this.match = new Writable<Match>({
+      board: [],
+      white: this.server.identity,
+      black: this.active_partner.get(),
+      turn: "white",
+      winner: null
+    });
+
+    this.chatService = ChatService.connect(this.server.url)
+
+    this.chatService.then(c=>{
+
+      
+      console.log("startMatch")
+      this.server.call(this.server.identity, chessApp.api.startMatch).then((msg)=>{
+        
+
+        
+        this.server.call(this.server.identity, chessApp.api.getActiveMatch).then(async (match: IdString)=>{
+
+          c.getName(match).then(n=>
+          {
+            this.server.call(this.server.identity, chessApp.api.getMatch).then((m:Match)=>{
+
+              c.getName(m.white).then(w=>console.log("white", w.get()))
+              c.getName(m.black).then(b=>console.log("black", b.get()))
+
+              this.match.set(m)
+            })
+          })
+        })
+      })
     })
 
-    el.innerHTML = ""
+
+  }
+
+  render(){
 
 
 
-    el.appendChild(div(
-      h2("Chess"),
-      chessBoard,
-      button("New Game", {
-        onclick: async ()=>{
-          console.log(conn.identity),
-          popup(div(
-            h2("New Game"),
-            p("your name:", socialApp.call(conn.identity, msgApp.api.getname).then(n=>{
-              return n
-            })),
+
+    return div(
+      {style:{
+        padding: "20px",
+      }},
+
+      h2("chess"),
+
+      this.match.map((m)=>
+        [
+          displayBoard(m, (move)=>{
+          }),
+          this.chatService.then(c=>{
+            
+            let nm = c.getName(m.black)
+            console.log("blck", nm)
+            return nm
+          }),
+          p("turn:",m.turn),
+          p("winner:",m.winner),
+        ]
+      )
+    )
+  }
 
 
-            p("Choose an opponent:"),
+  static async connect(url:string):Promise<ChessService> {
+    let server = await ServerConnection.connect<ChessContext>(url,
+      "rubox",
+      new Stored<string>("rubox-token-"+url, ''), chessApp,
+      (note:ChessNotification)=>{
+        console.log("notify", note)
+      })
+    let service = new ChessService(server)
 
+    return service
+  }
 
-            app.users().then((us)=>{
-              return us.map((u)=>{
-                console.log(u)
-
-                return button(socialApp.call(u, msgApp.api.getname), {
-                  
-                  onclick: async ()=>{
-                    let m:Match = {
-                      board: ctx.startBoard,
-                      turn: "white",
-                      winner: null
-                    }
-                    displayBoard(m, app)
-                  }
-                })
-              })
-            })
-          ))
-          socialApp.call(conn.identity, msgApp.api.getname).then(n=>{
-            {
-              let inp = input();
-              inp.placeholder = n
-              let el =  popup(div(
-                h2(`Set your name`),
-                inp,
-                button("Set", {
-                  onclick: async (e)=>{
-                    socialApp.call(conn.identity, msgApp.api.setname, inp.value)
-                    el.remove()
-                  }
-                })
-              ))
-              return el
-            }
-          })
-        }
-      }),
-    ))
-  })
-  
-  // el.appendChild(chessBoard)
-  return el
 }
-
-
-
-

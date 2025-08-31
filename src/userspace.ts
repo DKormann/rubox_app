@@ -44,11 +44,14 @@ export class ServerConnection <C> {
     conn: DbConnection,
     private hashedApp: HashedApp,
     public identity: IdString,
+    public url: string,
 
   ){
     this.conn = conn
     this.callQueue = new Map()
     this.callCounter = 0
+
+    console.log("sethost", this.hashedApp.hash)
 
     this.conn.reducers.sethost(this.hashedApp.hash, true)
 
@@ -63,7 +66,8 @@ export class ServerConnection <C> {
       this.callQueue.set(callid, [resolve, reject])
       this.conn.reducers.callLambda(
         IdentityFromString(target),
-        this.hashedApp.hash, await hashString(fn.toString()),
+        this.hashedApp.hash,
+        await hashString(fn.toString()),
         callid, JSON.stringify(arg ?? null)
       )
     })
@@ -119,7 +123,8 @@ export class ServerConnection <C> {
         let result = new ServerConnection<C>(
           conn,
           await hashApp(appData),
-          IdString(identity));
+          IdString(identity),
+          url);
 
         const handleReturn = (ret:Return) => {
           let val = JSON.parse(ret.content)

@@ -10,7 +10,7 @@ import { chessView } from "./clients/chess"
 import { button, div, h2, p } from "./html"
 import { Stored } from "./store"
 import { ServerConnection } from "./userspace"
-import {chessView as chessView2} from "./clients/chess2"
+import {ChessService, chessView as chessView2} from "./clients/chess2"
 
 
 export type PageComponent = (server:ServerConnection<any>) => HTMLElement
@@ -48,101 +48,82 @@ let location  = getLocation()
 
 
 
-console.log(location)
-
-// e=>({
-//   pushMsg:t=>{
-//     let r={sender:e.self,receiver:e.other,message:t};
-//     e.DB.set(!1,"messages",[...e.DB.get(!1,"messages")??[],r]),
-//     e.DB.set(!0,"messages",[...e.DB.get(!0,"messages")??[],r])
-//   }
-// })
-
 
 
 
 const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
-
-console.log("connecting to server at", serverurl)
 const body = document.body;
-
 body.appendChild(h2("loading..."))
 
 
-
-
-
-// connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
   
 
-  const home = () => div(
-    h2("welcome to the rubox"),
-    p("This is a simple app to demonstrate the use of the Rubox framework."),
+const home = () => div(
+  h2("welcome to the rubox"),
+  p("This is a simple app to demonstrate the use of the Rubox framework."),
 
-    ...apps.filter(x=>x.path).map(app => p(
-      button(app.path, {
-        onclick: () => {
-          route(app.path.split('/'))
-        }
-      })
-    ))
-  )
-
-
-  const chat = ChatService.connect(serverurl)
-
-  const apps : {
-    render: () => Promise<HTMLElement> | HTMLElement,
-    path: string,
-    cache? : HTMLElement
-  }[] = [
-    {render: home, path: ""},
-    {render: () => chat.then(c=>c.render()), path: "chat"},
-
-  ]
-
-  route(location.path)
-
-
-  window.addEventListener("popstate", (e) => {
-    location = getLocation() 
-    route(location.path)
-  })
-
-
-  function route(path: string[]){
-
-    let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
-    newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
-    
-    window.history.pushState({}, "", newpath)
-    body.innerHTML = ''
-    body.appendChild(div(
-      {style:{
-        "max-width": "20em",
-        position: "absolute",
-        top: "0",
-        left: "1em",
-        cursor: "pointer",
-      },
-        onclick: () => {
-          route([])
-        }},
-      h2("rubox"),
-
-    ))
-    body.style.fontFamily = "monospace"
-    body.style.textAlign = "center"
-    for (const app of apps){
-      if (app.path === path.join('/')){
-        if (!app.cache){
-          app.cache = div(app.render())
-        }
-        body.appendChild(app.cache)
+  ...apps.filter(x=>x.path).map(app => p(
+    button(app.path, {
+      onclick: () => {
+        route(app.path.split('/'))
       }
+    })
+  ))
+)
+
+
+const chat = ChatService.connect(serverurl)
+const chess = ChessService.connect(serverurl)
+
+const apps : {
+  render: () => Promise<HTMLElement> | HTMLElement,
+  path: string,
+  cache? : HTMLElement
+}[] = [
+  {render: home, path: ""},
+  {render: () => chat.then(c=>c.render()), path: "chat"},
+  {render: () => chess.then(c=>c.render()), path: "chess2"},
+
+]
+
+route(location.path)
+
+
+window.addEventListener("popstate", (e) => {
+  location = getLocation() 
+  route(location.path)
+})
+
+
+function route(path: string[]){
+
+  let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
+  newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
+  
+  window.history.pushState({}, "", newpath)
+  body.innerHTML = ''
+  body.appendChild(div(
+    {style:{
+      "max-width": "20em",
+      position: "absolute",
+      top: "0",
+      left: "1em",
+      cursor: "pointer",
+    },
+      onclick: () => {
+        route([])
+      }},
+    h2("rubox"),
+
+  ))
+  body.style.fontFamily = "monospace"
+  body.style.textAlign = "center"
+  for (const app of apps){
+    if (app.path === path.join('/')){
+      if (!app.cache){
+        app.cache = div(app.render())
+      }
+      body.appendChild(app.cache)
     }
   }
-
-
-
-// })
+}

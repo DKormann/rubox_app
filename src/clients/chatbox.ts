@@ -3,6 +3,7 @@ import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
 import { ServerApp, DefaultContext, IdString, ServerConnection, Serial } from "../userspace";
 import {  Stored, Writable } from "../store";
+import { Store } from "../module_bindings";
 
 
 
@@ -66,7 +67,7 @@ export class ChatService {
   constructor(
     public server : ServerConnection<ChatCtx>
   ){
-    this.active_partner = new Writable<IdString>(this.server.identity)
+    this.active_partner = new Stored<IdString>( `chat_partner_${this.server.identity}`, this.server.identity)
   }  
 
   render(){
@@ -137,7 +138,10 @@ export class ChatService {
       const n = await this.server.call(id, msgApp.api.getname) as string;
       this.nameCache.set(id, new Writable<string>(n))
     }
-    return this.nameCache.get(id)!
+    
+    let res = this.nameCache.get(id)!;
+    console.log("getName", id, res.get())
+    return res
   }
 
   async setName(name:string):Promise<void> {
