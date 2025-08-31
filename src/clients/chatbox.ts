@@ -10,7 +10,6 @@ type MsgNotification = ["new message", number]
 
 type ChatCtx = {
   pushMsg: (msg:string)=>void
-  // sendNotify: ()=>void
 }
 
 type Msg = {
@@ -62,50 +61,29 @@ export const msgApp : ServerApp<ChatCtx> = {
 export class ChatService {
   nameCache = new Map<IdString, Writable<string>>()
   msgs = new Writable([] as Msg[])
+  active_partner: Writable<IdString>
+
   constructor(
     public server : ServerConnection<ChatCtx>
   ){
-  }
+    this.active_partner = new Writable<IdString>(this.server.identity)
+  }  
 
   render(){
 
     const nametag = input();
 
-    this.getName(this.server.identity).then(n=>n.subscribe(n=>{nametag.value = n}))
-
-    const setname = ()=>{
-
-      const name = nametag.value
-      this.setName(name).then(()=>{
-        popup("name updated ", name)
-        this.server.call(this.server.identity, msgApp.api.setname, name).then(()=>{
-          this.getName(this.server.identity).then(n=>n.set(name))
-        })
-      })  
-    }
-
-    nametag.addEventListener("keydown", (e:KeyboardEvent)=>{
-      if (e.key === "Enter"){
-        setname()
+    this.getName(this.server.identity).then(n=>{
+      n.subscribe(n=>{nametag.value = n})
+      nametag.onkeydown = (e:KeyboardEvent)=>{
+        if (e.key === "Enter"){
+          this.setName(nametag.value).then(()=>{
+            popup("name updated ", nametag.value)
+            this.getName(this.server.identity).then(n=>n.set(nametag.value))
+          })
+        }
       }
-    })
-
-    let active_partner = new Stored<IdString>("chat_active_partner", this.server.identity)
-
-
-    this.server.call(this.server.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
-
-    let chatinput = input({placeholder: "enter message"})
-
-    chatinput.addEventListener("keydown", (e:KeyboardEvent)=>{
-      if (e.key === "Enter"){
-        this.server.call(active_partner.get(), msgApp.api.sendMessage, chatinput.value)
-        .then(()=>{
-          this.refreshMsgs()
-          chatinput.value = ""
-        })
-      }
-    })
+    });
 
 
     return div(
@@ -115,22 +93,39 @@ export class ChatService {
 
       p("active users:"),
       this.server.users().then(us=>us.map(u=>
-        p(this.getName(u), " ", button("message", {onclick: ()=>{active_partner.set(u)}}))
+        p(this.getName(u), " ", button("message", {onclick: ()=>{this.active_partner.set(u)}}))
       )),
 
-      p("chatting with:", active_partner.map(p=> this.getName(p))),
+      p("chatting with:",this.active_partner.map(p=> this.getName(p))),
       p("messages:"),
 
       this.msgs.map(m=>
-        active_partner.map(partner=>
+        this.active_partner.map(partner=>
           m.filter(m=>(m.receiver == partner && m.sender == this.server.identity) || (m.sender == partner && m.receiver == this.server.identity))
           .map(m=>p(this.getName(m.sender), " : ", m.message))
         )
       ),
-      chatinput,
+
+      input({
+        placeholder: "enter message",
+        onkeydown:(e)=>{
+          if (e.key === "Enter"){
+            let inp = e.target as HTMLInputElement
+            this.sendMessage(inp.value)
+            inp.value = ""
+          }
+        }
+      }),
 
       
     )
+  }
+
+  sendMessage(message:string){
+    this.server.call(this.active_partner.get(), msgApp.api.sendMessage, message)
+    .then(()=>{
+      this.refreshMsgs()
+    })
   }
 
   refreshMsgs(){
