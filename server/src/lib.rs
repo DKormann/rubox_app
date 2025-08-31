@@ -55,6 +55,7 @@ pub struct Store{
 pub struct Return{
   #[primary_key]
   owner:Identity,
+  app:u256,
   id: u32,
   content:String,
 }
@@ -239,6 +240,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
 
   let ret  = Return{
     owner:ctx.sender,
+    app:app.id,
     id: call_id,
     content:read_back(&res)
   };

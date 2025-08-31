@@ -56,20 +56,24 @@ export class ServerConnection <C> {
 
   async call (target:IdString, fn:APIFunction<C>, arg?:Serial) : Promise<Serial> {
 
-  
-    let res = new Promise<Serial>( ( resolve, reject ) => {
-      this.callQueue.set(this.callCounter, [resolve, reject])
-    })
-    
-    this.conn.reducers.callLambda(
-      IdentityFromString(target),
-      this.hashedApp.hash,
-      await hashString(fn.toString()),
-      this.callCounter,
-      JSON.stringify(arg ?? null))
-    
+    let callid = this.callCounter
     this.callCounter += 1
-    return await res
+
+    let res = new Promise<Serial>( async ( resolve, reject ) => {
+      this.callQueue.set(callid, [resolve, reject])
+      this.conn.reducers.callLambda(
+        IdentityFromString(target),
+        this.hashedApp.hash, await hashString(fn.toString()),
+        callid, JSON.stringify(arg ?? null)
+      )
+    })
+
+    const ret = await res;
+    let [data, logs] = ret as [Serial, string[]];
+    if (logs.length) {
+      logs.forEach(console.log);
+    }
+    return data;
   }
 
   users () : Promise<IdString[]> {
@@ -114,27 +118,28 @@ export class ServerConnection <C> {
 
         let result = new ServerConnection<C>(
           conn,
-
-
-          
           await hashApp(appData),
           IdString(identity));
 
         const handleReturn = (ret:Return) => {
-
-
           let val = JSON.parse(ret.content)
-          result.callQueue.get(ret.id)?.[0](val)
+          let expector = result.callQueue.get(ret.id)
+          if (expector == undefined) return
+          expector[0](val)
           result.callQueue.delete(ret.id)
         }
 
+
         conn.reducers.onCallLambda((c, o, a, l, id, arg)=>{
           if (c.event.status.tag == "Failed") {
+            console.log("callLambda failed", id)
             result.callQueue.get(id)?.[1](new Error(c.event.status.value))
+            result.callQueue.delete(id)
           }
         })
 
         const handleNotify = (note:Notification) => {
+          console.log("handleNotify", note)
           let val = JSON.parse(note.arg)
           onNotify(val, note.sender)
         }
@@ -150,6 +155,7 @@ export class ServerConnection <C> {
         .onError(console.error)
         .subscribe([
           `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
+          `SELECT * FROM notification WHERE target = '${identity.toHexString()}'`,
           `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`,
         ])
 

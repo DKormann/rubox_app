@@ -1,6 +1,6 @@
 import { Writable } from "./store"
 
-export type htmlKey = 'innerText'|'onclick' | 'oninput' | 'onkeydown' |'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style'
+export type htmlKey = 'innerText'|'onclick' | 'oninput' | 'onkeydown' |'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style' | 'placeholder'
 
 export const htmlElement = (tag:string, text:string, cls:string = "", args?:Partial<Record<htmlKey, any>>):HTMLElement =>{
 
@@ -117,7 +117,9 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
 
 
-export const popup = (dialogfield: HTMLElement)=>{
+export const popup = (...cs:HTMLArg[])=>{
+
+  const dialogfield = div(...cs)
 
   // const popupbackground = htmlElement("div", "", "popup-background");
   const popupbackground = div(
