@@ -20,11 +20,11 @@ use lang::parser::*;
 use crate::lang::{ast::{mk_call, mk_object, mk_string, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval, eval_native}};
 
 
-#[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
-pub struct Host{
-  host:Identity,
-  app:u256,
-}
+// #[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
+// pub struct Host{
+//   host:Identity,
+//   app:u256,
+// }
 
 
 #[table(name = app)]
@@ -43,10 +43,10 @@ pub struct Lambda{
 
 
 #[derive(Clone)]
-#[table(name = store)]
+#[table(name = store, index(name = storekey, btree(columns = [key, owner])))]
 pub struct Store{
-  #[primary_key]
   key:u256,
+  owner:Identity,
   content:String,
 }
 
@@ -107,22 +107,31 @@ pub fn hash_app(setup:&str, functions:Vec<u256>)->u256{
 }
 
 
-pub fn hash_key(owner:Identity, app:u256, key:&str)->u256{
+// pub fn hash_key(owner:Identity, app:u256, key:&str)->u256{
+//   let mut hash = Sha256::new();
+//   hash.update(owner.to_be_byte_array());
+//   hash.update(app.to_be_bytes());
+//   hash.update(key);
+//   return u256::from_be_bytes(*hash.finalize().as_ref())
+// }
+
+
+pub fn hash_key(app:u256, key:&str)->u256{
   let mut hash = Sha256::new();
-  hash.update(owner.to_be_byte_array());
   hash.update(app.to_be_bytes());
   hash.update(key);
   return u256::from_be_bytes(*hash.finalize().as_ref())
 }
 
-
 #[reducer]
 pub fn sethost(ctx: &ReducerContext, app:u256, value:bool){
-  if value {
-    ctx.db.host().insert(Host{host:ctx.sender, app});
-  } else {
-    ctx.db.host().delete(Host{host:ctx.sender, app});
+
+  if value{
+    ctx.db.store().insert(Store{key:hash_key(app, "host"), owner:ctx.sender, content:value.to_string()});
+  }else{
+    ctx.db.store().delete(Store{key:hash_key(app, "host"), owner:ctx.sender, content:value.to_string()});
   }
+
 }
 
 
@@ -156,9 +165,9 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
     ("notify".into(), (Value::NativeFn("Notify".into())).into()),
     ]);
 
-  let by_host_and_app: RangedIndex<_, (Identity, u256), _> = ctx.db.host().hostkey();
-  by_host_and_app.filter((other, app)).next().ok_or("app not installed on other")?;
-  by_host_and_app.filter((ctx.sender, app)).next().ok_or("app not installed on self")?;
+  let by_key_and_owner: RangedIndex<_, (u256, Identity), _> = ctx.db.store().storekey();
+  by_key_and_owner.filter((hash_key(app, "host"), other)).next().ok_or("app not installed on other")?;
+  by_key_and_owner.filter((hash_key(app, "host"), ctx.sender)).next().ok_or("app not installed on self")?;
 
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
@@ -184,22 +193,18 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
       ("DBSet", [Value::Boolean(from_me), Value::String(key), content]) => {
         let content = read_back(content);
         let owner = if *from_me {ctx.sender} else {other};
-        let key = hash_key(owner, app.id, &key);
+        let key = hash_key(app.id, &key);
         log::info!("setting {}, {}, {}", owner, app.id, &key);
-        let insres = ctx.db.store().try_insert(Store{key, content:content.clone()});
-        if insres.is_err(){
-          ctx.db.store().key().update(Store{key, content:content.clone()});
-        };
+        by_key_and_owner.delete((key, owner));
+        ctx.db.store().insert(Store{key, owner, content:content.clone()});        
         Ok(Value::Null)
       },
       ("DBGet", [Value::Boolean(from_me), Value::String(key)]) => {
         let owner = if *from_me {ctx.sender} else {other};
-        let key = hash_key(owner, app.id, &key);
-
-        let val: Value = match ctx.db.store().key().find(key){
-          Some(store) => {
-            let ast = parse(&store.content).map_err(|e| e.to_string())?;
-            let (res,logs) = eval(&ast)?;
+        let key = hash_key(app.id, &key);
+        let val = match by_key_and_owner.filter((key,owner)).next(){
+          Some(st) => {
+            let (res,logs) = eval(&parse(&st.content).map_err(|e| e.to_string())?)?;
             (*res).clone()
           },
           None => Value::Null,

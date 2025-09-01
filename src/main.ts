@@ -2,15 +2,10 @@
 export {}
 
 
-
-[].reduce((a, b) => a + b, "")
 import { ChatService } from "./clients/chatbox"
-import { chessView } from "./clients/chess"
-
 import { button, div, h2, p } from "./html"
-import { Stored } from "./store"
 import { ServerConnection } from "./userspace"
-import {ChessService, chessView as chessView2} from "./clients/chess2"
+import {ChessService } from "./clients/chess2"
 
 
 export type PageComponent = (server:ServerConnection<any>) => HTMLElement
@@ -72,17 +67,14 @@ const home = () => div(
 )
 
 
-const chat = ChatService.connect(serverurl)
-const chess = ChessService.connect(serverurl)
-
 const apps : {
   render: () => Promise<HTMLElement> | HTMLElement,
   path: string,
   cache? : HTMLElement
 }[] = [
   {render: home, path: ""},
-  {render: () => chat.then(c=>c.render()), path: "chat"},
-  {render: () => chess.then(c=>c.render()), path: "chess2"},
+  {render: () => ChatService.connect(serverurl).then(c=>c.render()), path: "chat"},
+  {render: () => ChessService.connect(serverurl).then(c=>c.render()), path: "chess2"},
 
 ]
 

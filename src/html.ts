@@ -100,15 +100,18 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
   const el = html("input", ...cs) as HTMLInputElement
 
   if (writable){
-    el.value = writable.get()
-    writable.subscribeLater((value)=>{
-      if (el.value !== value.toString()){
-        el.value = value.toString()
+    writable.subscribe(v=>{
+      if (el.value!=v.toString()){
+        el.value = v.toString()
       }
-    })
-    el.oninput = (e)=>{
-      writable.set((e.target as HTMLInputElement).value)
+    });
+
+    el.onkeydown = (e)=>{
+      if (e.key == "Enter"){
+        writable.set(el.value)
+      }
     }
+
   }else{
     el.value = content
   }

@@ -1,64 +1,80 @@
 export class Writable <T> {
-  private value: T
+  private value: Promise<T>
+  private resolved: T
+  private previous?: T
   private listeners: Array<(value: T) => void> = [] 
+  private listeners_once: Array<(value: T) => void> = []
 
-  constructor(initialValue: T) {
-    this.value = initialValue
+  constructor(initialValue: T | Promise<T>) {
+
+    this.set(initialValue)
   }
 
-  get(): T {
-    return this.value
-  }
+  set (newValue: T | Promise<T>, force = false){
 
-  set(newValue: T, force = false): void {
-    if (!force && newValue === this.value) return
+    if (newValue instanceof Promise){
+      if (!force && newValue == this.value) return
+      this.previous = this.resolved
+      this.resolved = undefined
 
-    this.value = newValue
-    for (const listener of this.listeners) {
-      listener(newValue)
+      this.value = newValue
+      this.value.then(v=>{
+        if (newValue != this.value) return
+        this.resolved = v
+        if (v == this.previous)return
+        this.listeners.forEach(l=>l(v))
+        this.listeners_once.forEach(l=>l(v))
+        this.listeners_once = []
+      })
+    }else{
+      if (!force && newValue == this.resolved) return
+      this.value = Promise.resolve(newValue)
+      this.resolved = newValue
+      this.listeners.forEach(l=>l(newValue))
+      this.listeners_once.forEach(l=>l(newValue))
+      this.listeners_once = []
     }
   }
 
-
-  update(updater: (value: T) => T, force = false): void {
-    const newValue = updater(this.value)
-    this.set(newValue, force)
-  }
-
-  subscribe(listener: (value: T) => void) {
+  subscribe(listener: (value: T) => any){
     this.listeners.push(listener)
-    listener(this.value)
+    if (this.resolved != undefined) listener(this.resolved)
   }
 
-  subscribeLater(listener: (value: T) => void){
+  subscribeLater(listener: (value: T) => any){
     this.listeners.push(listener)
   }
 
-  map<U>(mapper:(value:T)=>any){
-    let res = new Writable<U>(mapper(this.value))
-    this.subscribeLater(v=>{
+  get(): Promise<T>{
+    return new Promise((resolve, reject)=>{
+
+      if(this.resolved != undefined) return resolve(this.resolved)
+      
+      let sub = (res:T) => {
+        resolve(res)
+      }
+      
+      this.listeners_once.push(sub)
+    })
+  }
+
+  then<U>(fn: (value: T) => U): Promise<U>{
+    return this.get().then(fn)
+  }
+
+  update(fn: (value:T) => T | Promise<T>, force = false){
+    this.set(this.get().then(fn), force)
+  }
+
+
+  map<U>(mapper: (value: T) => U){
+    let res = new Writable(new Promise(()=>{}))
+    this.subscribe(v=>{
       res.set(mapper(v))
     })
     return res
   }
-
-  if (then: T, otherwise: T){
-    let res = new Writable<T>(this.value ? then : otherwise)
-    this.subscribeLater(v=>{
-      res.set(v ? then : otherwise)
-    })
-    return res
-  }
-
-  static of <T>(value:Promise<T>){
-    let wr = new Writable<T|null>(null)
-    value.then(v=>wr.set(v))
-    return wr
-  }
 }
-
-
-
 
 
 export class Stored<T> extends Writable<T> {
@@ -69,13 +85,10 @@ export class Stored<T> extends Writable<T> {
     }
     super(initialValue)
     this.key = key
-  }
 
-  set (newValue: T, force=false): void {
-    if (force || JSON.stringify(this.get()) !== JSON.stringify(newValue)) {
-      super.set(newValue)
-      localStorage.setItem(this.key, JSON.stringify(newValue))
-    }
+    this.subscribe(v=>{
+      localStorage.setItem(this.key, JSON.stringify(v))
+    })
   }
 }
 
@@ -136,27 +149,27 @@ export class CachedStore {
 }
 
 
-export function sIf <T> (cond:Writable<boolean>, then:Readable<T>, otherwise?:Readable<T>) : Readable<T | null> {
+// export function sIf <T> (cond:Writable<boolean>, then:Readable<T>, otherwise?:Readable<T>) : Readable<T | null> {
 
-  let res = new Writable<T | null>(null)
-  cond.subscribe(c=>{
-    if (c) res.set(then.get())
-    else if (otherwise) res.set(otherwise.get())
-    else res.set(null)
-  })
-  then.subscribe(v=>{
-    if (cond.get()) res.set(v)
-    else if (otherwise) res.set(otherwise.get())
-    else res.set(null)
-  })
-  return res
-}
+//   let res = new Writable<T | null>(null)
+//   cond.subscribe(c=>{
+//     if (c) res.set(then.get())
+//     else if (otherwise) res.set(otherwise.get())
+//     else res.set(null)
+//   })
+//   then.subscribe(v=>{
+//     if (cond.get()) res.set(v)
+//     else if (otherwise) res.set(otherwise.get())
+//     else res.set(null)
+//   })
+//   return res
+// }
 
-export function sMap <T,U> (source:Readable<T>, mapper:(value:T)=>U) : Writable<U> {
+// export function sMap <T,U> (source:Readable<T>, mapper:(value:T)=>U) : Writable<U> {
 
-  let res = new Writable<U>(mapper(source.get()))
-  source.subscribe(v=>{
-    res.set(mapper(v))
-  })
-  return res
-}
+//   let res = new Writable<U>(mapper(source.get()))
+//   source.subscribe(v=>{
+//     res.set(mapper(v))
+//   })
+//   return res
+// }

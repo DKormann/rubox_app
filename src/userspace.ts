@@ -1,6 +1,6 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { App, AppData, DbConnection, Host, Lambda, Return, Store, Notification } from "./module_bindings";
-import { hashApp, HashedApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
+import { hashApp, HashedApp, hashFunArgs, hashString } from "./hashing";
 import { CachedStore, Writable } from "./store";
 
 
@@ -38,6 +38,7 @@ export class ServerConnection <C> {
   private conn: DbConnection
   private callQueue: Map<number, [( value:any ) => void, ( e:Error ) => void]> = new Map()
   private callCounter: number
+
   
 
   constructor(
@@ -45,6 +46,8 @@ export class ServerConnection <C> {
     private hashedApp: HashedApp,
     public identity: IdString,
     public url: string,
+    public token: string
+
 
   ){
     this.conn = conn
@@ -98,19 +101,27 @@ export class ServerConnection <C> {
   static async connect <C> (
     url:string,
     dbname:string,
-    tokenStore:{get:()=>string, set:(value:string)=>void},
+    // tokenStore:{get:()=>string, set:(value:string)=>void},
     box: ServerApp<C>,
     onNotify: (payload:Serial, sender: Identity)=>void = ()=>{}
 
   ) : Promise<ServerConnection<C>> {
+
+    console.log("connect", box)
+    if (box instanceof Writable){
+      throw new Error("box must not be a Writable")
+    }
   
     return new Promise<ServerConnection<C>>((resolve, reject) => {
+      let token = localStorage.getItem(url+'-'+dbname+'-token') ?? '';
       DbConnection.builder()
       .withUri(url)
       .withModuleName(dbname)
-      .withToken(tokenStore.get())
+      .withToken(token)
       .onConnectError(console.error)
       .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
+
+        localStorage.setItem(url+'-'+dbname+'-token', token)
 
 
         const appData = {
@@ -124,7 +135,9 @@ export class ServerConnection <C> {
           conn,
           await hashApp(appData),
           IdString(identity),
-          url);
+          url,
+          token,
+        );
 
         const handleReturn = (ret:Return) => {
           let val = JSON.parse(ret.content)
@@ -164,8 +177,6 @@ export class ServerConnection <C> {
           `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`,
         ])
 
-
-        tokenStore.set(token)
         resolve(result)
       })
       .build()

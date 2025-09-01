@@ -1,6 +1,6 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
 import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
-import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
+import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./hashing";
 import { CachedStore, Writable } from "./store";
 
 

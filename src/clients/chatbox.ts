@@ -30,10 +30,12 @@ export const msgApp : ServerApp<ChatCtx> = {
           message: msg
         };
         let t = c.DB.set(false, "messages", [...c.DB.get<Msg[]> (false, "messages") ?? [], d]);
+        if (c.self == c.other) {
+          return null
+        }
         let prev = c.DB.get<Msg[]> (true, "messages");
         c.DB.set(true, "messages", [...prev ?? [], d])
         c.notify(["new message", prev.length ?? 0])
-
       },
     }
   },
@@ -72,25 +74,20 @@ export class ChatService {
 
   render(){
 
-    const nametag = input();
+    let myname = this.getName(this.server.identity)
 
-    this.getName(this.server.identity).then(n=>{
-      n.subscribe(n=>{nametag.value = n})
-      nametag.onkeydown = (e:KeyboardEvent)=>{
-        if (e.key === "Enter"){
-          this.setName(nametag.value).then(()=>{
-            popup("name updated ", nametag.value)
-            this.getName(this.server.identity).then(n=>n.set(nametag.value))
-          })
-        }
-      }
-    });
-
+    myname.get().then(n=>{
+      myname.subscribeLater(n=>{
+        this.server.call(this.server.identity, msgApp.api.setname, n)
+        .then(()=>{
+          popup("name updated: ", n)
+        })
+      })
+    })
 
     return div(
       h2("chatbox"),
-
-      p("my name:", nametag),
+      p("my name:", input(myname)),
 
       p("active users:"),
       this.server.users().then(us=>us.map(u=>
@@ -117,13 +114,11 @@ export class ChatService {
           }
         }
       }),
-
-      
     )
   }
 
-  sendMessage(message:string){
-    this.server.call(this.active_partner.get(), msgApp.api.sendMessage, message)
+  async sendMessage(message:string){
+    this.server.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
     .then(()=>{
       this.refreshMsgs()
     })
@@ -133,30 +128,31 @@ export class ChatService {
     this.server.call(this.server.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
   }
 
-  async getName(id:IdString):Promise<Writable<string>> {
+  getName(id:IdString):Writable<string> {
     if (!this.nameCache.has(id)) {
-      const n = await this.server.call(id, msgApp.api.getname) as string;
-      this.nameCache.set(id, new Writable<string>(n))
+      const nm = this.server.call(id, msgApp.api.getname) as Promise<string>;
+      let res = new Writable<string>(nm)
+      this.nameCache.set(id, res)
     }
-    
-    let res = this.nameCache.get(id)!;
-    console.log("getName", id, res.get())
-    return res
+    return this.nameCache.get(id)!
   }
 
   async setName(name:string):Promise<void> {
-    await this.server.call(this.server.identity, msgApp.api.setname, name)
+    await this.server.call(this.server.identity, msgApp.api.setname, name);
   }
 
 
   static async connect(url:string):Promise<ChatService> {
-    let server = await ServerConnection.connect(url,
+    console.log("connect chatbox", msgApp)
+    let server = await ServerConnection.connect(
+      url,
       "rubox",
-      new Stored<string>("rubox-token-"+url, ''), msgApp,
+      msgApp,
       (note:MsgNotification)=>{
         console.log("notify", note)
         service.refreshMsgs()
-      })
+      }
+    )
     let service = new ChatService(server)
 
     return service
