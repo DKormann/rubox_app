@@ -7,6 +7,8 @@ import { ChatService, msgApp } from "./chatbox"
 
 type PieceType = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king" | "kingmoved" | "rookmoved" | "pawnmoved" | "pawnmoveddouble"
 
+
+
 type Piece = {
   type: PieceType
   color: "white" | "black"
@@ -86,22 +88,6 @@ let chessApp : ServerApp <ChessContext> = {
     function getLegalMoves(board:Board, pos:Pos):Pos[]{
       let piece = getPieceAt(board, pos)
       if (!piece) {return []}
-      if (piece.type == "rook" || piece.type == "bishop" || piece.type == "queen" || piece.type == "rookmoved"){
-
-        let getRay = (pos:Pos, dir:number):Pos[]=>{
-          let pp = pos + dir
-          if (!isPos(pp)) {return []}
-          let target = getPieceAt(board, pp)
-          if (target) {
-            if (target.color == piece.color) {return []}
-            return [pp]
-          }
-          return [pp, ...getRay(pp, dir)]
-        }
-        return directions(piece).reduce((acc, dir)=>{
-          return [...acc, ...getRay(pos, dir)]
-        }, [])
-      }
       if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble"){
         let moves =  directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null)
 
@@ -114,8 +100,6 @@ let chessApp : ServerApp <ChessContext> = {
           return target && target.color != piece.color
         })
 
-        console.log({hits})
-
         let passants = [left,right]
         .map((d) => pos + d)
         .filter((t) => {
@@ -127,10 +111,25 @@ let chessApp : ServerApp <ChessContext> = {
 
         return [...moves, ...passants, ...hits]
       }
-      return directions(piece).map((d)=>pos+d).filter((p)=>{
-        let target = getPieceAt(board, p)
-        return !target || target.color != piece.color
-      })
+
+      let getRay = (pos:Pos, dir:number):Pos[]=>{
+        let pp = pos + dir
+        if (!isPos(pp)) {return []}
+        let target = getPieceAt(board, pp)
+        if (target) {
+          if (target.color == piece.color) {return []}
+          return [pp]
+        }
+
+        if (piece.type == "king" || piece.type == "kingmoved" || piece.type == "knight") {
+          return [pp]
+        }
+        return [pp, ...getRay(pp, dir)]
+      }
+      return directions(piece).reduce((acc, dir)=>{
+        return [...acc, ...getRay(pos, dir)]
+      }, [])
+
     }
 
     function makeMove(m:Match, move:Move):[string, Match]{
@@ -141,7 +140,7 @@ let chessApp : ServerApp <ChessContext> = {
       if (piece.color != m.turn) {return ["not your turn", m]}
       
       let options = getLegalMoves(m.board, move.start)
-      console.log({options})
+
       let dist = move.end - move.start
       let npBoard = m.board.map((p)=> p && p.type == "pawnmoveddouble" ? {...p, type: "pawnmoved"} : p)
       let ptype = (piece.type == "pawn" || piece.type == "pawnmoveddouble") ?
@@ -170,7 +169,7 @@ let chessApp : ServerApp <ChessContext> = {
         if (dist % 10 != 0){
           let passant = move.end % 10 + Math.floor(move.start / 10) * 10
           let target = getPieceAt(resMatch.board, passant)
-          console.log({target, passant})
+
           let pboard = arrSet(resMatch.board, passant, null)
           if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
             return ["", {...resMatch, board: pboard}]
@@ -216,7 +215,7 @@ let chessApp : ServerApp <ChessContext> = {
 
     },
 
-    getActiveMatch: (c, arg)=>{
+    getOpponent: (c, arg)=>{
       return c.DB.get(true, "active_match")
     },
 
@@ -224,11 +223,46 @@ let chessApp : ServerApp <ChessContext> = {
       return c.DB.get(false, "match_data")
     },
 
-    makeMove: (c, arg)=>{
-      return c.makeMove(arg[0], arg[1])
+    
+
+    resignMatch: (c, arg)=>{
+      let match = c.DB.get(false, "match_data") as Match;
+
+      let winner = match.white == c.self ? "black" : match.black == c.self ? "white" : null;
+      if (winner){
+        let newmatch = {
+          ...match,
+          winner: winner
+        };
+        c.DB.set(false, "match_data", newmatch);
+        c.notify(["new match", newmatch]);
+        c.DB.set(true, "active_match", null);
+        c.DB.set(false, "active_match", null);
+        return [null, newmatch];
+      }
     },
 
-    
+    makeMove: (c, arg)=>{
+
+      let match = c.DB.get(false, "match_data") as Match;
+      if (match.winner != null) {
+        return ["game over", match]
+      }
+      if (match.turn == "white" && match.white != c.self) {
+        return ["not your turn", match]
+      }
+      if (match.turn == "black" && match.black != c.self) {
+        return ["not your turn", match]
+      }
+
+      let [err, newmatch] = c.makeMove(match, arg[1]);
+      if (err) {
+        return [err, match]
+      }
+      c.DB.set(false, "match_data", newmatch);
+      c.notify(["new move", newmatch]);
+      return [err, newmatch];
+    },
   }
 }
 
@@ -295,8 +329,8 @@ let displayBoard = (m:Match, onMove: (m:Move)=>void)=>{
         end: n,
         promo: null
       };
-      onMove(move)
       focuspos = focuspos == n ? null : n
+      onMove(move)
     }})
 
     let piece = m.board[n]
@@ -328,7 +362,7 @@ type ChessNotification = ["new move", Match]
 
 
 export class ChessService {
-  active_partner: Writable<IdString>
+  active_partner: Writable<IdString | null>
 
   match : Writable<Match> = new Writable<Match>(undefined)
 
@@ -338,35 +372,26 @@ export class ChessService {
     public server : ServerConnection<ChessContext>
   ){
 
-    this.active_partner = new Stored<IdString>( `chess_partner_${this.server.identity}`, this.server.identity)
+    this.active_partner = new Stored<IdString>( `chess_partner_${this.server.identity}`, null)
 
-    this.match = new Writable<Match>({
-      board: [],
-      white: this.server.identity,
-      black: this.active_partner.get(),
-      turn: "white",
-      winner: null
-    });
+    this.active_partner.subscribe(p=>{
+      console.log("active_partner", p);
+    })
+
+    this.match = this.active_partner.map<Match>(p=>{return { board: [], white: this.server.identity, black: p, turn: "white", winner: null}})
 
     this.chatService = ChatService.connect(this.server.url)
 
     this.chatService.then(c=>{
 
-      
-      console.log("startMatch")
       this.server.call(this.server.identity, chessApp.api.startMatch).then((msg)=>{
-        
-
-        
-        this.server.call(this.server.identity, chessApp.api.getActiveMatch).then(async (match: IdString)=>{
+                
+        this.server.call(this.server.identity, chessApp.api.getOpponent).then(async (match: IdString)=>{
+          this.active_partner.set(match);
 
           c.getName(match).then(n=>
           {
-            this.server.call(this.server.identity, chessApp.api.getMatch).then((m:Match)=>{
-
-              c.getName(m.white).then(w=>console.log("white", w.get()))
-              c.getName(m.black).then(b=>console.log("black", b.get()))
-
+            this.server.call(match, chessApp.api.getMatch).then((m:Match)=>{
               this.match.set(m)
             })
           })
@@ -379,8 +404,7 @@ export class ChessService {
 
   render(){
 
-
-
+    let chessRules = chessApp.loadApp(undefined);
 
     return div(
       {style:{
@@ -390,30 +414,62 @@ export class ChessService {
       h2("chess"),
 
       this.match.map((m)=>
-        [
+      {
+
+        return [
           displayBoard(m, (move)=>{
+
+
+            let [err, newmatch] = chessRules.makeMove(m, move);
+
+            if (err){
+
+              this.match.set(newmatch,true);
+              return;
+            }
+
+            this.server.call(this.server.identity, chessApp.api.makeMove, [m, move])
+            .then((data)=>{
+              let [err, newmatch] = data as [string, Match];
+              if (err){
+                popup(err);
+              }
+              this.match.set(newmatch);
+            })
           }),
-          this.chatService.then(c=>{
-            
-            let nm = c.getName(m.black)
-            console.log("blck", nm)
-            return nm
-          }),
+          this.chatService.then<any>(ch=>
+            [
+              p("my name:", ch.getName(ch.server.identity)),
+              p("opponent name:", ch.getName(m.black)),
+            ]
+          ),
           p("turn:",m.turn),
           p("winner:",m.winner),
+          button("resign", {onclick: async ()=>{
+
+            this.server.call(await this.active_partner.get(), chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
+
+              this.server.call(this.server.identity, chessApp.api.getOpponent).then((opponent:IdString)=>{
+                console.log("opponent", opponent);
+              })
+
+            }).catch((err)=>{
+              popup(err);
+            })
+          }}),
         ]
-      )
+      })
     )
   }
 
 
   static async connect(url:string):Promise<ChessService> {
-    let server = await ServerConnection.connect<ChessContext>(url,
+    let server = await ServerConnection.connect<ChessContext>(
+      url,
       "rubox",
-      new Stored<string>("rubox-token-"+url, ''), chessApp,
-      (note:ChessNotification)=>{
-        console.log("notify", note)
-      })
+      chessApp,
+      (note:ChessNotification)=>service.match.set(note[1], true)
+    )
     let service = new ChessService(server)
 
     return service

@@ -68,7 +68,7 @@ export class Writable <T> {
 
 
   map<U>(mapper: (value: T) => U){
-    let res = new Writable(new Promise(()=>{}))
+    let res = new Writable<U>(new Promise(()=>{}))
     this.subscribe(v=>{
       res.set(mapper(v))
     })

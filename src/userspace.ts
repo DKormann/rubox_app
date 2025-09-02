@@ -54,7 +54,6 @@ export class ServerConnection <C> {
     this.callQueue = new Map()
     this.callCounter = 0
 
-    console.log("sethost", this.hashedApp.hash)
 
     this.conn.reducers.sethost(this.hashedApp.hash, true)
 
@@ -78,7 +77,7 @@ export class ServerConnection <C> {
     const ret = await res;
     let [data, logs] = ret as [Serial, string[]];
     if (logs.length) {
-      logs.forEach(console.log);
+      logs.forEach(console.info);
     }
     return data;
   }
@@ -107,7 +106,6 @@ export class ServerConnection <C> {
 
   ) : Promise<ServerConnection<C>> {
 
-    console.log("connect", box)
     if (box instanceof Writable){
       throw new Error("box must not be a Writable")
     }
@@ -140,6 +138,9 @@ export class ServerConnection <C> {
         );
 
         const handleReturn = (ret:Return) => {
+
+          if (ret.app != result.hashedApp.hash) return
+          
           let val = JSON.parse(ret.content)
           let expector = result.callQueue.get(ret.id)
           if (expector == undefined) return
@@ -150,14 +151,14 @@ export class ServerConnection <C> {
 
         conn.reducers.onCallLambda((c, o, a, l, id, arg)=>{
           if (c.event.status.tag == "Failed") {
-            console.log("callLambda failed", id)
+            console.warn("callLambda failed", id)
             result.callQueue.get(id)?.[1](new Error(c.event.status.value))
             result.callQueue.delete(id)
           }
         })
 
         const handleNotify = (note:Notification) => {
-          console.log("handleNotify", note)
+
           let val = JSON.parse(note.arg)
           onNotify(val, note.sender)
         }

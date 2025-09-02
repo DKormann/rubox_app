@@ -79,9 +79,7 @@ export class ChatService {
     myname.get().then(n=>{
       myname.subscribeLater(n=>{
         this.server.call(this.server.identity, msgApp.api.setname, n)
-        .then(()=>{
-          popup("name updated: ", n)
-        })
+        .then(()=>popup("name updated: ", n))
       })
     })
 
@@ -143,16 +141,12 @@ export class ChatService {
 
 
   static async connect(url:string):Promise<ChatService> {
-    console.log("connect chatbox", msgApp)
+
     let server = await ServerConnection.connect(
       url,
       "rubox",
       msgApp,
-      (note:MsgNotification)=>{
-        console.log("notify", note)
-        service.refreshMsgs()
-      }
-    )
+      (note:MsgNotification)=>service.refreshMsgs())
     let service = new ChatService(server)
 
     return service
