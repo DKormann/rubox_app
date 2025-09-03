@@ -370,39 +370,26 @@ function getother (m:Match, self:IdString):IdString{
 }
 
 export class ChessService {
-  // active_partner: Writable<IdString | null>
 
   match : Writable<Match> = new Writable<Match>(undefined)
+  conn: AppHandle
 
-  chatService : Promise<ChatService>
-
-  constructor(
-    public url: WSSURL
-  ){
+  chatService: ChatService
 
 
-    this.chatService.then(c=>{
-      console.log("chat service", c);
+  constructor(public server:ServerConnection){
+    this.conn = new AppHandle(server, chessApp, (note:ChessNotification)=>this.match.set(note[1], true))
+    this.chatService = new ChatService(server)
 
-      this.server.call(this.server.identity, chessApp.api.getHost).then(async (opp: IdString)=>{
-        console.log("opp", opp);
-
-
-        if (opp == null) {
-          this.match.set(null);
-        }
-        this.server.call(opp, chessApp.api.getMatch).then((m:Match)=>{
-          this.match.set(m)
-        })
-      })
+    this.conn.call(this.server.identity, chessApp.api.getMatch).then((m:Match)=>{
+      this.match.set(m, true);
     })
-
-
   }
 
 
-
   render(){
+
+    console.log("render chess service");
 
     let chessRules = chessApp.loadApp(undefined);
 
@@ -413,27 +400,21 @@ export class ChessService {
 
       h2("chess"),
 
+      this.match.map((m)=>{
 
-
-      this.match.map((m)=>
-
-      {
-
-        console.log("match", m);
+        let opponent = getother(m, this.server.identity);
 
         return [
           displayBoard(m, (move)=>{
 
-
             let [err, newmatch] = chessRules.makeMove(m, move);
 
             if (err){
-
               this.match.set(newmatch,true);
               return;
             }
 
-            this.server.call(this.server.identity, chessApp.api.makeMove, [m, move])
+            this.conn.call(this.server.identity, chessApp.api.makeMove, [m, move])
             .then((data)=>{
               let [err, newmatch] = data as [string, Match];
               if (err){
@@ -442,66 +423,45 @@ export class ChessService {
               this.match.set(newmatch);
             })
           }),
-          this.chatService.then<any>(ch=>{
-            console.log("chat service", ch);
-            let opponent = getother(m, this.server.identity);
 
-            return [
-              p("my name:", ch.getName(ch.server.identity)),
+          p("my name:", this.chatService.getName(this.conn.identity)),
 
-              p("opponent name:", opponent ? ch.getName(opponent) : "no opponent"),
-              p("turn:",m.turn),
-              p("winner:",m.winner),
+          p("opponent name:", opponent ? this.chatService.getName(opponent) : "no opponent"),
+          p("turn:",m.turn),
+          p("winner:",m.winner),
 
-              opponent && (!m.winner)
-                ? button("resign", {onclick: async ()=>{
-                  this.server.call(opponent, chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
-                    this.match.set(newmatch);
-                  })
-                }})
-                : button("new match", {onclick: ()=>{
-                  this.server.users().then((users:IdString[])=>{
+          opponent && (!m.winner)
+            ? button("resign", {onclick: async ()=>{
+              this.conn.call(opponent, chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
+                this.match.set(newmatch);
+              })
+            }})
+            : button("new match", {onclick: ()=>{
+              this.conn.users().then((users:IdString[])=>{
 
-                    let oppicker = popup(
-                      h2("choose an opponent"),
-                      users
-                      .map(async (user)=>{
-                        let occ = await this.server.call(user, chessApp.api.getHost)
-                        if (occ != null) return null
-                        return p(
-                          button(ch.getName(user), {onclick: ()=>{
-                            this.server.call(user, chessApp.api.startMatch).then(([err, newmatch]:[string, Match])=>{
-                              if (err){
-                                popup(err);
-                              }else{
-                                this.match.set(newmatch);
-                                oppicker.remove();
-                              }
-                            })
-                          }})
-                        )
-                      })
+                let oppicker = popup(
+                  h2("choose an opponent"),
+                  users
+                  .map(async (user)=>{
+                    let occ = await this.conn.call(user, chessApp.api.getHost)
+                    if (occ != null) return null
+                    return p(
+                      button(this.chatService.getName(user), {onclick: ()=>{
+                        this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch]:[string, Match])=>{
+                          if (err){
+                            popup(err);
+                          }else{
+                            this.match.set(newmatch);
+                            oppicker.remove();
+                          }
+                        })
+                      }})
                     )
                   })
-                }}),
-              ]
-          }),
-
+                )
+              })
+            }}),
       ]})
     )
   }
-
-
-  static async connect(url:string):Promise<ChessService> {
-    let server = await ServerConnection.connect<ChessContext>(
-      url,
-      "rubox",
-      chessApp,
-      (note:ChessNotification)=>service.match.set(note[1], true)
-    )
-    let service = new ChessService(server)
-
-    return service
-  }
-
 }

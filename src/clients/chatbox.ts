@@ -70,12 +70,8 @@ export class ChatService {
 
   constructor(server:ServerConnection){
 
-
     this.conn = new AppHandle(server, msgApp, (note:MsgNotification)=>this.refreshMsgs())
     this.active_partner = new Stored<IdString>( `chat_partner_${this.conn.app}`, this.conn.identity)
-
-
-
   }
 
   render(){

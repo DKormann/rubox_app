@@ -70,7 +70,7 @@ async function setup(){
   }[] = [
     {render: home, path: ""},
     {render: (server) => new ChatService(server).render(), path: "chat"},
-    // {render: (server) => new ChessService(server).render(), path: "chess2"},
+    {render: (server) => new ChessService(server).render(), path: "chess"},
   ]
 
   route(location.path,server)
