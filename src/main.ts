@@ -4,11 +4,11 @@ export {}
 
 import { ChatService } from "./clients/chatbox"
 import { button, div, h2, p } from "./html"
-import { ServerConnection } from "./userspace"
+import { ServerConnection, WSSURL } from "./userspace"
 import {ChessService } from "./clients/chess2"
 
 
-export type PageComponent = (server:ServerConnection<any>) => HTMLElement
+export type PageComponent = (server:ServerConnection) => HTMLElement
 
 
 
@@ -46,7 +46,7 @@ let location  = getLocation()
 
 
 
-const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
+const serverurl : WSSURL = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
 const body = document.body;
 body.appendChild(h2("loading..."))
 

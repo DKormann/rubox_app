@@ -1,7 +1,7 @@
 
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
-import { ServerApp, DefaultContext, IdString, ServerConnection, Serial } from "../userspace";
+import { ServerApp, DefaultContext, IdString, ServerConnection, Serial, AppHandle, WSSURL } from "../userspace";
 import {  Stored, Writable } from "../store";
 import { Store } from "../module_bindings";
 
@@ -21,6 +21,7 @@ type Msg = {
 
 
 export const msgApp : ServerApp<ChatCtx> = {
+  name: "chatbox",
   loadApp: (c:DefaultContext) => {
     return {
       pushMsg: (msg:string)=>{
@@ -67,18 +68,21 @@ export class ChatService {
   active_partner: Writable<IdString>
 
   constructor(
-    public server : ServerConnection<ChatCtx>
+
+    public conn: AppHandle
   ){
-    this.active_partner = new Stored<IdString>( `chat_partner_${this.server.identity}`, this.server.identity)
+    this.active_partner = new Stored<IdString>( `chat_partner_${conn.app}`, this.conn.identity)
   }  
 
   render(){
 
-    let myname = this.getName(this.server.identity)
+    console.log("chat handle", this.conn)
+
+    let myname = this.getName(this.conn.identity)
 
     myname.get().then(n=>{
       myname.subscribeLater(n=>{
-        this.server.call(this.server.identity, msgApp.api.setname, n)
+        this.conn.call(this.conn.identity, msgApp.api.setname, n)
         .then(()=>popup("name updated: ", n))
       })
     })
@@ -88,7 +92,7 @@ export class ChatService {
       p("my name:", input(myname)),
 
       p("active users:"),
-      this.server.users().then(us=>us.map(u=>
+      this.conn.users().then(us=>us.map(u=>
         p(this.getName(u), " ", button("message", {onclick: ()=>{this.active_partner.set(u)}}))
       )),
 
@@ -97,7 +101,7 @@ export class ChatService {
 
       this.msgs.map(m=>
         this.active_partner.map(partner=>
-          m.filter(m=>(m.receiver == partner && m.sender == this.server.identity) || (m.sender == partner && m.receiver == this.server.identity))
+          m.filter(m=>(m.receiver == partner && m.sender == this.conn.identity) || (m.sender == partner && m.receiver == this.conn.identity))
           .map(m=>p(this.getName(m.sender), " : ", m.message))
         )
       ),
@@ -116,19 +120,19 @@ export class ChatService {
   }
 
   async sendMessage(message:string){
-    this.server.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
+    this.conn.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
     .then(()=>{
       this.refreshMsgs()
     })
   }
 
   refreshMsgs(){
-    this.server.call(this.server.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
+    this.conn.call(this.conn.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
   }
 
   getName(id:IdString):Writable<string> {
     if (!this.nameCache.has(id)) {
-      const nm = this.server.call(id, msgApp.api.getname) as Promise<string>;
+      const nm = this.conn.call(id, msgApp.api.getname) as Promise<string>;
       let res = new Writable<string>(nm)
       this.nameCache.set(id, res)
     }
@@ -136,19 +140,16 @@ export class ChatService {
   }
 
   async setName(name:string):Promise<void> {
-    await this.server.call(this.server.identity, msgApp.api.setname, name);
+    await this.conn.call(this.conn.identity, msgApp.api.setname, name);
   }
 
+  static async connect(url:WSSURL):Promise<ChatService> {
+    let conn = await AppHandle.connect(
+      url, msgApp,
+      (note:MsgNotification)=>service.refreshMsgs()
+    )
 
-  static async connect(url:string):Promise<ChatService> {
-
-    let server = await ServerConnection.connect(
-      url,
-      "rubox",
-      msgApp,
-      (note:MsgNotification)=>service.refreshMsgs())
-    let service = new ChatService(server)
-
+    let service = new ChatService(conn)
     return service
   }
 

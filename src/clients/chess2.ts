@@ -37,6 +37,8 @@ type Move = {
 
 let chessApp : ServerApp <ChessContext> = {
 
+  name: "chess",
+
   loadApp : (c:DefaultContext)=>{
 
     let startBoard : Board = [
@@ -198,32 +200,32 @@ let chessApp : ServerApp <ChessContext> = {
         winner: null
       };
 
-      if (c.DB.get(true, "active_match")){
-        return "already playing"
+      if (c.DB.get(true, "match_host")){
+        return ["already playing", null]
       }
 
-      if (c.DB.get(false, "active_match")){
-        return "opponent already playing"
+      if (c.DB.get(false, "match_host")){
+        return ["opponent already playing", null]
       }
 
-      c.DB.set(true, "active_match", c.self)
-      c.DB.set(false, "active_match", c.self)
-
+      c.DB.set(true, "match_host", c.self)
+      c.DB.set(false, "match_host", c.self)
       c.DB.set(true, "match_data", match)
 
-      return "error not implemented2"
+
+      return [null, match]
 
     },
 
-    getOpponent: (c, arg)=>{
-      return c.DB.get(true, "active_match")
+    getHost: (c, arg)=>{
+      console.log("getHost", c.DB.get(true, "match_host"));
+      return c.DB.get(true, "match_host")
     },
 
     getMatch: (c, arg)=>{
       return c.DB.get(false, "match_data")
     },
 
-    
 
     resignMatch: (c, arg)=>{
       let match = c.DB.get(false, "match_data") as Match;
@@ -236,8 +238,8 @@ let chessApp : ServerApp <ChessContext> = {
         };
         c.DB.set(false, "match_data", newmatch);
         c.notify(["new match", newmatch]);
-        c.DB.set(true, "active_match", null);
-        c.DB.set(false, "active_match", null);
+        c.DB.set(true, "match_host", null);
+        c.DB.set(false, "match_host", null);
         return [null, newmatch];
       }
     },
@@ -361,8 +363,14 @@ let displayBoard = (m:Match, onMove: (m:Move)=>void)=>{
 type ChessNotification = ["new move", Match]
 
 
+function getother (m:Match, self:IdString):IdString{
+  if (m.white == self) {return m.black}
+  if (m.black == self) {return m.white}
+  return null
+}
+
 export class ChessService {
-  active_partner: Writable<IdString | null>
+  // active_partner: Writable<IdString | null>
 
   match : Writable<Match> = new Writable<Match>(undefined)
 
@@ -372,35 +380,29 @@ export class ChessService {
     public server : ServerConnection<ChessContext>
   ){
 
-    this.active_partner = new Stored<IdString>( `chess_partner_${this.server.identity}`, null)
-
-    this.active_partner.subscribe(p=>{
-      console.log("active_partner", p);
-    })
-
-    this.match = this.active_partner.map<Match>(p=>{return { board: [], white: this.server.identity, black: p, turn: "white", winner: null}})
 
     this.chatService = ChatService.connect(this.server.url)
 
     this.chatService.then(c=>{
+      console.log("chat service", c);
 
-      this.server.call(this.server.identity, chessApp.api.startMatch).then((msg)=>{
-                
-        this.server.call(this.server.identity, chessApp.api.getOpponent).then(async (match: IdString)=>{
-          this.active_partner.set(match);
+      this.server.call(this.server.identity, chessApp.api.getHost).then(async (opp: IdString)=>{
+        console.log("opp", opp);
 
-          c.getName(match).then(n=>
-          {
-            this.server.call(match, chessApp.api.getMatch).then((m:Match)=>{
-              this.match.set(m)
-            })
-          })
+
+        if (opp == null) {
+          this.match.set(null);
+        }
+        this.server.call(opp, chessApp.api.getMatch).then((m:Match)=>{
+          this.match.set(m)
         })
       })
     })
 
 
   }
+
+
 
   render(){
 
@@ -413,8 +415,13 @@ export class ChessService {
 
       h2("chess"),
 
+
+
       this.match.map((m)=>
+
       {
+
+        console.log("match", m);
 
         return [
           displayBoard(m, (move)=>{
@@ -437,28 +444,52 @@ export class ChessService {
               this.match.set(newmatch);
             })
           }),
-          this.chatService.then<any>(ch=>
-            [
+          this.chatService.then<any>(ch=>{
+            console.log("chat service", ch);
+            let opponent = getother(m, this.server.identity);
+
+            return [
               p("my name:", ch.getName(ch.server.identity)),
-              p("opponent name:", ch.getName(m.black)),
-            ]
-          ),
-          p("turn:",m.turn),
-          p("winner:",m.winner),
-          button("resign", {onclick: async ()=>{
 
-            this.server.call(await this.active_partner.get(), chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
+              p("opponent name:", opponent ? ch.getName(opponent) : "no opponent"),
+              p("turn:",m.turn),
+              p("winner:",m.winner),
 
-              this.server.call(this.server.identity, chessApp.api.getOpponent).then((opponent:IdString)=>{
-                console.log("opponent", opponent);
-              })
+              opponent && (!m.winner)
+                ? button("resign", {onclick: async ()=>{
+                  this.server.call(opponent, chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
+                    this.match.set(newmatch);
+                  })
+                }})
+                : button("new match", {onclick: ()=>{
+                  this.server.users().then((users:IdString[])=>{
 
-            }).catch((err)=>{
-              popup(err);
-            })
-          }}),
-        ]
-      })
+                    let oppicker = popup(
+                      h2("choose an opponent"),
+                      users
+                      .map(async (user)=>{
+                        let occ = await this.server.call(user, chessApp.api.getHost)
+                        if (occ != null) return null
+                        return p(
+                          button(ch.getName(user), {onclick: ()=>{
+                            this.server.call(user, chessApp.api.startMatch).then(([err, newmatch]:[string, Match])=>{
+                              if (err){
+                                popup(err);
+                              }else{
+                                this.match.set(newmatch);
+                                oppicker.remove();
+                              }
+                            })
+                          }})
+                        )
+                      })
+                    )
+                  })
+                }}),
+              ]
+          }),
+
+      ]})
     )
   }
 
