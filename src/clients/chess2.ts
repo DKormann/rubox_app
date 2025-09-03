@@ -1,7 +1,7 @@
 import {button, div, h2, input, p, popup} from "../html"
 import { PageComponent } from "../main"
 import { Stored, Writable } from "../store"
-import { DefaultContext, IdString, ServerApp, ServerConnection } from "../userspace"
+import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection, WSSURL } from "../userspace"
 import { ChatService, msgApp } from "./chatbox"
 
 
@@ -377,11 +377,9 @@ export class ChessService {
   chatService : Promise<ChatService>
 
   constructor(
-    public server : ServerConnection<ChessContext>
+    public url: WSSURL
   ){
 
-
-    this.chatService = ChatService.connect(this.server.url)
 
     this.chatService.then(c=>{
       console.log("chat service", c);

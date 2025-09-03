@@ -36,7 +36,7 @@ export const msgApp : ServerApp<ChatCtx> = {
         }
         let prev = c.DB.get<Msg[]> (true, "messages");
         c.DB.set(true, "messages", [...prev ?? [], d])
-        c.notify(["new message", prev.length ?? 0])
+        c.notify(["new message", prev ? prev.length : 0])
       },
     }
   },
@@ -66,17 +66,19 @@ export class ChatService {
   nameCache = new Map<IdString, Writable<string>>()
   msgs = new Writable([] as Msg[])
   active_partner: Writable<IdString>
+  conn: AppHandle
 
-  constructor(
+  constructor(server:ServerConnection){
 
-    public conn: AppHandle
-  ){
-    this.active_partner = new Stored<IdString>( `chat_partner_${conn.app}`, this.conn.identity)
-  }  
+
+    this.conn = new AppHandle(server, msgApp, (note:MsgNotification)=>this.refreshMsgs())
+    this.active_partner = new Stored<IdString>( `chat_partner_${this.conn.app}`, this.conn.identity)
+
+
+
+  }
 
   render(){
-
-    console.log("chat handle", this.conn)
 
     let myname = this.getName(this.conn.identity)
 
@@ -86,6 +88,8 @@ export class ChatService {
         .then(()=>popup("name updated: ", n))
       })
     })
+
+    this.refreshMsgs()
 
     return div(
       h2("chatbox"),
@@ -143,15 +147,15 @@ export class ChatService {
     await this.conn.call(this.conn.identity, msgApp.api.setname, name);
   }
 
-  static async connect(url:WSSURL):Promise<ChatService> {
-    let conn = await AppHandle.connect(
-      url, msgApp,
-      (note:MsgNotification)=>service.refreshMsgs()
-    )
+  // static async connect(url:WSSURL):Promise<ChatService> {
+  //   let conn = await AppHandle.connect(
+  //     url, msgApp,
+  //     (note:MsgNotification)=>service.refreshMsgs()
+  //   )
 
-    let service = new ChatService(conn)
-    return service
-  }
+  //   let service = new ChatService(conn)
+  //   return service
+  // }
 
 }
 

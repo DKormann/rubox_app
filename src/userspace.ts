@@ -44,7 +44,6 @@ export class ServerConnection {
   constructor(
     public identity: IdString,
     public server: DbConnection
-
   ) {}
 
   static connect(url:WSSURL): Promise<ServerConnection> {
@@ -61,6 +60,7 @@ export class ServerConnection {
         let server = new ServerConnection(IdString(identity), conn)
         const handleNotify = (note:Notification) => {server.notifyListeners.get(note.app)?.(JSON.parse(note.arg))}
         const handleReturn = (ret:Return) => {
+
           let data = JSON.parse(ret.content)
           let [res, logs] = data as [Serial, string[]]
           logs.forEach(console.log)
@@ -108,33 +108,40 @@ export class AppHandle {
 
   private callCounter: number = 0
   public identity: IdString
+  public app: Promise<bigint>
 
-  constructor(public app: bigint, public server: ServerConnection){
-    this.identity = this.server.identity    
-  }
-  
-  static async connect(url:WSSURL, box: ServerApp<any>, onNotify: (payload:Serial) => void){
-    if (!servers.has(url)) {servers.set(url, ServerConnection.connect(url))}
 
-    let app = await hashApp({
+  constructor(
+    public server: ServerConnection,
+    box: ServerApp<any>,
+    onNotify: (payload:Serial) => void
+  ){
+    this.identity = server.identity
+
+    let appData = {
       setup:box.loadApp.toString(),
       functions: Object.values(box.api).map(fn=>fn.toString())
+    }
+    server.server.reducers.publish(appData)
+    this.app = hashApp(appData).then(app=>{
+      let appHash = app.hash
+      server.notifyListeners.set(appHash, onNotify)
+      server.returnListeners.set(appHash, new Map())
+      server.server.reducers.sethost(appHash, true)
+      return app.hash
     })
-
-    let server = await servers.get(url)
-    server.returnListeners.set(app.hash, new Map())
-    return new AppHandle(app.hash, server)
-
   }
 
   async call(target:IdString, fn:APIFunction<any>, arg:Serial = null): Promise<Serial>{
     return new Promise(async (resolve, reject)=>{
-      // important dont rearange funHash
       let funHash = await hashString(fn.toString())
-      this.server.returnListeners.get(this.app)?.set(this.callCounter, {resolve,reject})
-      this.server.server.reducers.callLambda( IdentityFromString(target), this.app, funHash, this.callCounter, JSON.stringify(arg))
+      let appHash = await this.app
+      this.server.returnListeners.get(appHash)?.set(this.callCounter, {resolve,reject})
+      this.server.server.reducers.callLambda( IdentityFromString(target), appHash, funHash, this.callCounter, JSON.stringify(arg))
       this.callCounter += 1
     })
   }
-  users(){ return this.server.users(this.app)}
+  async users():Promise<IdString[]>{
+    return this.server.users(await this.app)
+  }
 }
