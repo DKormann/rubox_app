@@ -23,6 +23,7 @@ type Match = {
   board: Board
   white: IdString
   black: IdString
+  host: IdString
   turn: "white" | "black"
   winner: "white" | "black" | "draw" | null
 }
@@ -158,11 +159,9 @@ let chessApp = {
 
 
       let resMatch: Match = {
-        white: m.white,
-        black: m.black,
+        ...m,
         board: newBoard,
         turn: m.turn == "white" ? "black" : "white",
-        winner: null
       }
 
       
@@ -193,6 +192,7 @@ let chessApp = {
     startMatch: (c, arg) :[string, Match | null]=>{
 
       let match: Match = {
+        host: c.self,
         white: c.self,
         black: c.other,
         board: c.startBoard,
@@ -211,6 +211,11 @@ let chessApp = {
       c.DB.set(true, "match_host", c.self)
       c.DB.set(false, "match_host", c.self)
       c.DB.set(true, "match_data", match)
+
+      c.notify({
+        type: "new match",
+        data: match
+      })
 
 
       return ['', match]
@@ -384,7 +389,7 @@ type ChessNotification = {
   data: Match
 } | {
   type: "new match"
-  data: IdString
+  data: Match
 } | {
   type: "game over"
   data: Match
@@ -404,8 +409,6 @@ export class ChessService {
 
   chatService: ChatService
 
-  host: Writable<IdString | null>
-
 
   constructor(public server:ServerConnection){
 
@@ -414,7 +417,7 @@ export class ChessService {
       if (note.type == "new move"){
         this.match.set(note.data);
       }else if (note.type == "new match"){
-        this.host.set(note.data);
+        this.match.set(note.data);
       }else if (note.type == "game over"){
         this.match.set(note.data)
       }
@@ -422,27 +425,47 @@ export class ChessService {
 
     this.chatService = new ChatService(server)
 
-    this.host = new Writable<IdString | null>(null)
-
-    this.host.subscribe((h)=>{
+    this.conn.call(this.server.identity, chessApp.api.getHost).then((h:IdString | null)=>{
       if (h){
         this.conn.call(h, chessApp.api.getMatch).then((m:Match)=>{
-          this.match.set(m, true);
+          this.match.set(m);
         })
       }else{
         this.match.set(null, true);
       }
     })
-
-    this.conn.call(this.server.identity, chessApp.api.getHost).then((h:IdString | null)=>{
-
-
-      this.host.set(h,true);
-    })
   }
 
 
   render(){
+
+
+
+    let matchMaker = button("new match", {onclick: ()=>{
+      this.conn.users().then((users:IdString[])=>{
+        let oppicker = popup(
+          h2("choose an opponent"),
+          users.map(async (user)=>{
+            let occ = await this.conn.call(user, chessApp.api.getHost)
+            if (occ != null) return null
+            return p(
+              button(this.chatService.getName(user), {onclick: ()=>{
+                this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch])=>{
+                  if (err){
+                    popup(err);
+                  }else{
+                    this.match.set(newmatch);
+                  }
+                })
+                oppicker.remove();
+              }})
+
+            )
+          })
+        )
+      })
+    }})
+
 
     let chessRules = chessApp.loadApp(undefined);
 
@@ -453,64 +476,37 @@ export class ChessService {
 
       h2("chess"),
 
+      this.match.map(m=>{
 
-      this.host.map(h=>{
-        let matchMaker = button("new match", {onclick: ()=>{
-          this.conn.users().then((users:IdString[])=>{
-            let oppicker = popup(
-              h2("choose an opponent"),
-              users.map(async (user)=>{
-                let occ = await this.conn.call(user, chessApp.api.getHost)
-                if (occ != null) return null
-                return p(
-                  button(this.chatService.getName(user), {onclick: ()=>{
-                    this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch])=>{
-                      if (err){
-                        popup(err);
-                      }else{
-                        this.conn.call(user, chessApp.api.getHost).then((h:IdString | null)=>{this.host.set(h);})
-                        this.match.set(newmatch);
-                        oppicker.remove();
-                      }
-                    })
-                  }})
-                )
+        console.log(m);
+
+        if (m) {
+
+          let host = m.host;
+          let opponent = getother(m, this.conn.identity);
+          return [
+            displayBoard(m, (move)=>{
+              this.conn.call(host, chessApp.api.requestMove, move)
+              .then(([err, newmatch])=>{this.match.set(newmatch)})
+            }),
+            p("my name:", this.chatService.getName(this.conn.identity)),
+            p("white:", this.chatService.getName(m.white)),
+            p("black:", this.chatService.getName(m.black)),
+            p("turn:",m.turn),
+            p("winner:",m.winner),
+            m.winner == null ? button("resign", {onclick: ()=>{
+
+              this.conn.call(opponent, chessApp.api.resignMatch, null).then(([err, newmatch])=>{
+                if (err){
+                  popup(err);
+                }else{
+                  this.match.set(newmatch);
+                }
               })
-            )
-          })
-        }})
-
-        return h
-        ? this.match.map(m=>{
-
-          if (m) {
-            let opponent = getother(m, this.conn.identity);
-            return [
-              displayBoard(m, (move)=>{
-                this.conn.call(h, chessApp.api.requestMove, move)
-                .then(([err, newmatch])=>{this.match.set(newmatch)})
-              }),
-              p("my name:", this.chatService.getName(this.conn.identity)),
-              p("white:", this.chatService.getName(m.white)),
-              p("black:", this.chatService.getName(m.black)),
-              p("turn:",m.turn),
-              p("winner:",m.winner),
-              m.winner == null ? button("resign", {onclick: ()=>{
-
-                this.conn.call(opponent, chessApp.api.resignMatch, null).then(([err, newmatch])=>{
-                  if (err){
-                    popup(err);
-                  }else{
-                    this.match.set(newmatch);
-                  }
-                })
-              }}) : matchMaker
-            ]
-          }
-          return matchMaker
-        })
-        : matchMaker
-
+            }}) : matchMaker
+          ]
+        }
+        return matchMaker
       }),
     )
   }

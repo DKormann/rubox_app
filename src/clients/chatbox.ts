@@ -147,16 +147,6 @@ export class ChatService {
     await this.conn.call(this.conn.identity, msgApp.api.setname, name);
   }
 
-  // static async connect(url:WSSURL):Promise<ChatService> {
-  //   let conn = await AppHandle.connect(
-  //     url, msgApp,
-  //     (note:MsgNotification)=>service.refreshMsgs()
-  //   )
-
-  //   let service = new ChatService(conn)
-  //   return service
-  // }
-
 }
 
 
