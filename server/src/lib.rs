@@ -50,6 +50,12 @@ pub struct Store{
   content:String,
 }
 
+#[derive(Clone, SpacetimeType)]
+pub enum LamResult{
+  Ok(String),
+  Err(String),
+}
+
 #[derive(Clone)]
 #[table(name = returns, public)]
 pub struct Return{
@@ -57,7 +63,8 @@ pub struct Return{
   owner:Identity,
   app:u256,
   id: u32,
-  content:String,
+  logs:Vec<String>,
+  result:LamResult,
 }
 
 #[derive(Clone)]
@@ -230,21 +237,27 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
   };
 
 
-  let (res, logs) = eval_native(&finast, native_fns)?;
+  let (result, logs) = match eval_native(&finast, native_fns){
+    Ok((res, logs)) => {
+      let read = if (*res.clone() == Value::Undefined) {
+        Value::Null
+      }else{
+        (*res).clone()
+      };
+      (LamResult::Ok(read_back(&read)), logs)
+    },
+    Err((e, logs)) => (LamResult::Err(format!("error in {}: {}", lam.code, e)), logs),
+  };
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
-
-  let res = Value::Array(vec![
-    if (res == Value::Undefined.into()) {Value::Null.into()} else {res.into()},
-    Value::Array(logs.iter().map(|l| Rc::new(Value::String(l.clone()))).collect()).into()
-  ]);
 
   let ret  = Return{
     owner:ctx.sender,
     app:app.id,
     id: call_id,
-    content:read_back(&res)
+    logs,
+    result,
   };
 
   ctx.db.returns().owner().update(ret);
@@ -256,7 +269,10 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
 
 #[reducer(client_connected)]
 pub fn identity_connected(_ctx: &ReducerContext) {
-  let dummy = Return{ owner:_ctx.sender, app:u256::from(0u8), id: 0, content: "".to_string() };
+  let dummy = Return{ owner:_ctx.sender, app:u256::from(0u8), id: 0,
+    logs:vec![],
+    result:LamResult::Ok("".to_string()),
+  };
   if let Err(_) = _ctx.db.returns().try_insert(dummy.clone()){
     _ctx.db.returns().owner().update(dummy);
   };

@@ -20,7 +20,7 @@ type Msg = {
 }
 
 
-export const msgApp : ServerApp<ChatCtx> = {
+export const msgApp  = {
   name: "chatbox",
   loadApp: (c:DefaultContext) => {
     return {
@@ -59,7 +59,7 @@ export const msgApp : ServerApp<ChatCtx> = {
     }
 
   }
-}
+} as ServerApp<ChatCtx>
 
 
 export class ChatService {

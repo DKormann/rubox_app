@@ -64,6 +64,8 @@ import { AppData } from "./app_data_type.ts";
 export { AppData };
 import { Host } from "./host_type.ts";
 export { Host };
+import { LamResult } from "./lam_result_type.ts";
+export { LamResult };
 import { Lambda } from "./lambda_type.ts";
 export { Lambda };
 import { Notification } from "./notification_type.ts";

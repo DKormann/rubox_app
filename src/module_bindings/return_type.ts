@@ -32,11 +32,14 @@ import {
   type ReducerEventContextInterface,
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
+import { LamResult as __LamResult } from "./lam_result_type";
+
 export type Return = {
   owner: Identity,
   app: bigint,
   id: number,
-  content: string,
+  logs: string[],
+  result: __LamResult,
 };
 
 /**
@@ -52,7 +55,8 @@ export namespace Return {
       new ProductTypeElement("owner", AlgebraicType.createIdentityType()),
       new ProductTypeElement("app", AlgebraicType.createU256Type()),
       new ProductTypeElement("id", AlgebraicType.createU32Type()),
-      new ProductTypeElement("content", AlgebraicType.createStringType()),
+      new ProductTypeElement("logs", AlgebraicType.createArrayType(AlgebraicType.createStringType())),
+      new ProductTypeElement("result", __LamResult.getTypeScriptAlgebraicType()),
     ]);
   }
 

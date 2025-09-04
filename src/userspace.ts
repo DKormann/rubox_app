@@ -16,13 +16,13 @@ export type DefaultContext = {
 
 export type Serial = string | number | boolean | null | Serial [] | { [key: string]: Serial } | [Serial, Serial]
 
-export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
+export type APIFunction<C, A, R> = (ctx:DefaultContext & C, arg:Serial) => R
 export type ClientFunction = (arg:Serial) => void
 
 export type ServerApp<C> = {
   name: string,
   loadApp : (c:DefaultContext) => C
-  api: { [key: string]: APIFunction <C> }
+  api: { [key: string]: APIFunction <C, Serial, any> }
 }
 
 export type IdString = `id${string}`
@@ -32,12 +32,12 @@ export type WSSURL = `wss${string}` | `ws${string}`
 
 
 const servers = new Map<WSSURL, Promise<ServerConnection>>()
-type Consumer = (payload:Serial) => void
+type Consumer= (payload:Serial) => void
 
 export class ServerConnection {
   public notifyListeners = new Map<bigint, Consumer>()
   public returnListeners = new Map<bigint,Map<number, {
-    resolve: Consumer
+    resolve: (value:any) => void
     reject: Consumer
   }>>();
 
@@ -46,12 +46,10 @@ export class ServerConnection {
     public server: DbConnection
   ) {
 
-    console.log("ServerConnection constructor")
   }
 
   static connect(url:WSSURL, token:string): Promise<[ServerConnection, string]> {
 
-    console.log("connect", url)
 
     return new Promise(async (resolve, reject)=>{
 
@@ -61,26 +59,22 @@ export class ServerConnection {
       .withToken(token)
       .withModuleName("rubox")
       .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
-        console.log("onConnect", identity)
+
         localStorage.setItem(`${url}-token`, token)
         let server = new ServerConnection(IdString(identity), conn)
         const handleNotify = (note:Notification) => {server.notifyListeners.get(note.app)?.(JSON.parse(note.arg))}
         const handleReturn = (ret:Return) => {
-          console.log("handleReturn", ret)
 
-          if (ret.app == 0n){
-            return
-          }
+          if (!ret.app){return}
 
-          let data = JSON.parse(ret.content)
-          let [res, logs] = data as [Serial, string[]]
-          if (logs.length > 0){
-            console.log("logs:");
-            logs.forEach(l => console.log(l))
+          if (ret.logs.length > 0){
+            console.info("logs:");
+            ret.logs.forEach(l => console.log(l))
           }
-          let expector = server.returnListeners.get(ret.app)?.get(ret.id)
-          console.log("expector", expector)
-          expector?.resolve(res)
+          let expector = server.returnListeners.get(ret.app)?.get(ret.id);
+          if (!expector){return}
+          (ret.result.tag == "Ok" ? expector.resolve(JSON.parse(ret.result.value)) : expector.reject(ret.result.value))
+
         }
 
         conn.subscriptionBuilder()
@@ -149,7 +143,13 @@ export class AppHandle {
     })
   }
 
-  async call(target:IdString, fn:APIFunction<any>, arg:Serial = null): Promise<Serial>{
+  async call<R, A extends Serial>(target:IdString, fn:APIFunction<any, A, R>, arg:Serial = null): Promise<R>{
+    if (!target.startsWith("id")){
+      throw new Error("target must be an id: " + target)
+    }
+    if (!fn){
+      throw new Error("fn must be a function: " + fn)
+    }
     return new Promise(async (resolve, reject)=>{
       let funHash = await hashString(fn.toString())
       let appHash = await this.app

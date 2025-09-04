@@ -35,7 +35,7 @@ type Move = {
 }
 
 
-let chessApp : ServerApp <ChessContext> = {
+let chessApp = {
 
   name: "chess",
 
@@ -190,7 +190,7 @@ let chessApp : ServerApp <ChessContext> = {
   },
   api: {
 
-    startMatch: (c, arg)=>{
+    startMatch: (c, arg) :[string, Match | null]=>{
 
       let match: Match = {
         white: c.self,
@@ -213,11 +213,11 @@ let chessApp : ServerApp <ChessContext> = {
       c.DB.set(true, "match_data", match)
 
 
-      return [null, match]
+      return ['', match]
 
     },
 
-    getHost: (c, arg)=>{
+    getHost: (c:DefaultContext, arg)=>{
       return c.DB.get(true, "match_host")
     },
 
@@ -226,24 +226,38 @@ let chessApp : ServerApp <ChessContext> = {
     },
 
 
-    resignMatch: (c, arg)=>{
-      let match = c.DB.get(false, "match_data") as Match;
+    resignMatch: (c, arg) :[string, Match | null]=>{
 
-      let winner = match.white == c.self ? "black" : match.black == c.self ? "white" : null;
-      if (winner){
-        let newmatch = {
-          ...match,
-          winner: winner
-        };
-        c.DB.set(false, "match_data", newmatch);
-        c.notify(["new match", newmatch]);
-        c.DB.set(true, "match_host", null);
-        c.DB.set(false, "match_host", null);
-        return [null, newmatch];
+      let imhost = c.DB.get(true, "match_host") == c.self;
+      let match = c.DB.get(imhost, "match_data") as Match;
+
+      if (match.black != c.self && match.white != c.self) {
+        return ["not your match", null]
       }
+
+      if (match.black != c.other && match.white != c.other) {
+        return ["not your opponent", null]
+      }
+
+      let winner = match.white == c.self ? "black" : "white" as "white" | "black";
+
+      let newmatch = {
+        ...match,
+        winner
+      };
+      c.DB.set(imhost, "match_data", newmatch);
+      c.notify({
+        type: "game over",
+        data: newmatch
+      })
+      c.DB.set(true, "match_host", null);
+      c.DB.set(false, "match_host", null);
+      return ["", newmatch];
+
+
     },
 
-    makeMove: (c, arg)=>{
+    requestMove: (c : DefaultContext & ChessContext, arg : Move) :[string, Match | null]=>{
 
       let match = c.DB.get(false, "match_data") as Match;
       if (match.winner != null) {
@@ -256,16 +270,21 @@ let chessApp : ServerApp <ChessContext> = {
         return ["not your turn", match]
       }
 
-      let [err, newmatch] = c.makeMove(match, arg[1]);
-      if (err) {
+      let [err, newmatch] = c.makeMove(match, arg);
+
+      if (err.length > 0) {
         return [err, match]
       }
       c.DB.set(false, "match_data", newmatch);
-      c.notify(["new move", newmatch]);
+
+      c.notify({
+        type: "new move",
+        data: newmatch
+      })
       return [err, newmatch];
     },
   }
-}
+}// as ServerApp<ChessContext>
 
 
 type ChessContext = {
@@ -366,6 +385,9 @@ type ChessNotification = {
 } | {
   type: "new match"
   data: IdString
+} | {
+  type: "game over"
+  data: Match
 }
 
 
@@ -391,9 +413,10 @@ export class ChessService {
     this.conn = new AppHandle(server, chessApp, (note:ChessNotification)=>{
       if (note.type == "new move"){
         this.match.set(note.data);
-      }
-      if (note.type == "new match"){
+      }else if (note.type == "new match"){
         this.host.set(note.data);
+      }else if (note.type == "game over"){
+        this.match.set(note.data)
       }
     })
 
@@ -402,7 +425,6 @@ export class ChessService {
     this.host = new Writable<IdString | null>(null)
 
     this.host.subscribe((h)=>{
-      console.log("host:", h);
       if (h){
         this.conn.call(h, chessApp.api.getMatch).then((m:Match)=>{
           this.match.set(m, true);
@@ -413,19 +435,14 @@ export class ChessService {
     })
 
     this.conn.call(this.server.identity, chessApp.api.getHost).then((h:IdString | null)=>{
-      console.log("get host", h);
+
+
       this.host.set(h,true);
     })
   }
 
 
   render(){
-
-    this.host.then((h)=>{
-      console.log("host:", h);
-    })
-
-    console.log("host:", this.host.resolved)
 
     let chessRules = chessApp.loadApp(undefined);
 
@@ -436,9 +453,8 @@ export class ChessService {
 
       h2("chess"),
 
-      
-      this.host.map(h=>{  
-        console.log("the host:", h);
+
+      this.host.map(h=>{
         let matchMaker = button("new match", {onclick: ()=>{
           this.conn.users().then((users:IdString[])=>{
             let oppicker = popup(
@@ -448,10 +464,11 @@ export class ChessService {
                 if (occ != null) return null
                 return p(
                   button(this.chatService.getName(user), {onclick: ()=>{
-                    this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch]:[string, Match])=>{
+                    this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch])=>{
                       if (err){
                         popup(err);
                       }else{
+                        this.conn.call(user, chessApp.api.getHost).then((h:IdString | null)=>{this.host.set(h);})
                         this.match.set(newmatch);
                         oppicker.remove();
                       }
@@ -465,25 +482,32 @@ export class ChessService {
 
         return h
         ? this.match.map(m=>{
-          return [
 
-            displayBoard(m, (move)=>{
-              this.conn.call(h, chessApp.api.makeMove, [move])
-            }),
-            p("my name:", this.chatService.getName(this.conn.identity)),
-            p("opponent name:", this.chatService.getName(getother(m, this.conn.identity))),
-            p("turn:",m.turn),
-            p("winner:",m.winner),
-            m.winner == null ? button("resign", {onclick: ()=>{
-              this.conn.call(h, chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
-                if (err){
-                  popup(err);
-                }else{
-                  this.match.set(newmatch);
-                }
-              })
-            }}) : matchMaker
-          ]
+          if (m) {
+            let opponent = getother(m, this.conn.identity);
+            return [
+              displayBoard(m, (move)=>{
+                this.conn.call(h, chessApp.api.requestMove, move)
+                .then(([err, newmatch])=>{this.match.set(newmatch)})
+              }),
+              p("my name:", this.chatService.getName(this.conn.identity)),
+              p("white:", this.chatService.getName(m.white)),
+              p("black:", this.chatService.getName(m.black)),
+              p("turn:",m.turn),
+              p("winner:",m.winner),
+              m.winner == null ? button("resign", {onclick: ()=>{
+
+                this.conn.call(opponent, chessApp.api.resignMatch, null).then(([err, newmatch])=>{
+                  if (err){
+                    popup(err);
+                  }else{
+                    this.match.set(newmatch);
+                  }
+                })
+              }}) : matchMaker
+            ]
+          }
+          return matchMaker
         })
         : matchMaker
 
