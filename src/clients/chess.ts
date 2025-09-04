@@ -438,9 +438,6 @@ export class ChessService {
 
 
   render(){
-
-
-
     let matchMaker = button("new match", {onclick: ()=>{
       this.conn.users().then((users:IdString[])=>{
         let oppicker = popup(
@@ -466,8 +463,51 @@ export class ChessService {
       })
     }})
 
+    let showChat = new Stored("show_chat_chess", true);
 
-    let chessRules = chessApp.loadApp(undefined);
+    let opponent = this.match.map(m=>getother(m, this.conn.identity));
+
+    let chatview = showChat.map(h=>
+      div(
+        h
+        ? [
+            button("x", {onclick: ()=>showChat.set(false)}),
+            h2("chat"),
+
+            opponent.map(async o=>{
+              await this.chatService.refreshMsgs()
+              return this.chatService.filterMsgs(o).map(m=>{
+                console.log("messages", m)
+                console.log(m[m.length-1].message)
+                let res = div(m.map(m=>p(this.chatService.getName(m.sender), " : ", m.message)))
+                console.log("res", res)
+                return res
+              })
+            }),
+
+            input({onkeydown:async (e)=>{
+              if (e.key === "Enter"){
+                let inp = e.target as HTMLInputElement
+                await this.chatService.sendMessage(inp.value)
+                inp.value = ""
+              }
+            }}),
+          ]
+        : button("open chat", {onclick: ()=>showChat.set(true)}),
+        {
+          style:{
+            position: "absolute",
+            top:"1em",
+            right:"1em",
+            zIndex: "1000",
+            "max-width": "20em",
+            border: "1px solid #000",
+            "border-radius": "1em",
+            "background-color": "var(--bg)",
+          },
+        }
+      )
+    )
 
     return div(
       {style:{
@@ -503,7 +543,11 @@ export class ChessService {
                   this.match.set(newmatch);
                 }
               })
-            }}) : matchMaker
+            }}) : matchMaker,
+
+            chatview,
+
+            
           ]
         }
         return matchMaker

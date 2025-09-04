@@ -6,7 +6,7 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
 
   const _element = document.createElement(tag)
   _element.innerText = text
-  if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
+  // if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
   if (args) Object.entries(args).forEach(([key, value])=>{
     if (key === 'parent'){
       (value as HTMLElement).appendChild(_element)
@@ -23,6 +23,8 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
       Object.entries(value as Record<string, string>).forEach(([key, value])=>{
         _element.style.setProperty(key, value)
       })
+    }else if (key === 'class'){
+      _element.classList.add(...(value as string).split('.').filter(x=>x))
     }else{
       _element[(key as 'innerText' | 'onclick' | 'oninput' | 'id' | 'contentEditable')] = value
     }
@@ -42,10 +44,11 @@ export const html = (tag:string, ...cs:HTMLArg[]):HTMLElement=>{
     if (typeof arg === 'string') children.push(htmlElement("span", arg))
     else if (typeof arg === 'number') children.push(htmlElement("span", arg.toString()))
     else if (arg instanceof Writable){
-      const el = span()
+      const el = span({class:"writable-container"})
       arg.subscribe((value)=>{
         el.innerHTML = ""
-        el.appendChild(span(value))
+        el.appendChild(span(value, {class:"writable-value"}))
+        console.log("new el:", el)
       })
       children.push(el)
     }

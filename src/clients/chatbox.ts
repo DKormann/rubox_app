@@ -62,13 +62,22 @@ export const msgApp  = {
 } as ServerApp<ChatCtx>
 
 
+
 export class ChatService {
   nameCache = new Map<IdString, Writable<string>>()
   msgs = new Writable([] as Msg[])
   active_partner: Writable<IdString>
   conn: AppHandle
 
-  constructor(server:ServerConnection){
+  static instances: ChatService[] = []
+
+
+  constructor(server:ServerConnection){    
+
+    let instance = ChatService.instances.find(i=>i.conn.server == server)
+    if (instance) return instance;
+
+    console.log("creating chat service")
 
     this.conn = new AppHandle(server, msgApp, (note:MsgNotification)=>this.refreshMsgs())
     this.active_partner = new Stored<IdString>( `chat_partner_${this.conn.app}`, this.conn.identity)
@@ -99,12 +108,8 @@ export class ChatService {
       p("chatting with:",this.active_partner.map(p=> this.getName(p))),
       p("messages:"),
 
-      this.msgs.map(m=>
-        this.active_partner.map(partner=>
-          m.filter(m=>(m.receiver == partner && m.sender == this.conn.identity) || (m.sender == partner && m.receiver == this.conn.identity))
-          .map(m=>p(this.getName(m.sender), " : ", m.message))
-        )
-      ),
+
+      this.active_partner.map(partner=>this.filterMsgs(partner).map(m=>m.map(m=>p(this.getName(m.sender), " : ", m.message)))),
 
       input({
         placeholder: "enter message",
@@ -120,14 +125,22 @@ export class ChatService {
   }
 
   async sendMessage(message:string){
-    this.conn.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
-    .then(()=>{
-      this.refreshMsgs()
+    await this.conn.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
+    .then(()=>{this.refreshMsgs()})
+  }
+
+  filterMsgs(partner:IdString){
+
+    return this.msgs.map(m=>m.filter(m=>(m.receiver == partner && m.sender == this.conn.identity) || (m.sender == partner && m.receiver == this.conn.identity)))
+    .map(m=>{
+      console.log("filtering messages for", partner)
+      console.log("messages", m)
+      return m
     })
   }
 
-  refreshMsgs(){
-    this.conn.call(this.conn.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
+  async refreshMsgs(){
+    await this.conn.call(this.conn.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
   }
 
   getName(id:IdString):Writable<string> {

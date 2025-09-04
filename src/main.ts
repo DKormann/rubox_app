@@ -3,9 +3,10 @@ export {}
 
 
 import { ChatService, msgApp } from "./clients/chatbox"
-import { button, div, h2, p, popup } from "./html"
+import { button, div, h2, input, p, popup } from "./html"
 import { AppHandle, ServerConnection, WSSURL } from "./userspace"
 import {ChessService } from "./clients/chess"
+import { Writable } from "./store"
 
 
 export type PageComponent = (server:ServerConnection) => HTMLElement
@@ -47,6 +48,7 @@ body.appendChild(h2("loading..."))
 
 
 
+
 async function setup(){
 
   let tokenLocation = `${serverurl}-token`
@@ -82,6 +84,31 @@ async function setup(){
     {render: home, path: ""},
     {render: (server) => new ChatService(server).render(), path: "chat"},
     {render: (server) => new ChessService(server).render(), path: "chess"},
+    {
+      render: (server) =>{
+        let x1 = new Writable("x1");
+        let x2 = new Writable("x2");
+        let x3 = new Writable("x3");
+        return div(
+          h2("test"),
+          p("x1:", input(x1)),
+          p("x2:", input(x2)),
+          p("x3:", input(x3)),
+
+          p(),
+
+          x1.map(x=>
+            x2.map(x2=>
+              x3.map(x3=>
+                p("x1:", x, " x2:", x2, " x3:", x3)
+              )
+            )
+          )
+
+        )
+      },
+      path: "test",
+    }
   ]
 
   route(location.path,server)
