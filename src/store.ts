@@ -1,6 +1,6 @@
 export class Writable <T> {
   private value: Promise<T>
-  private resolved: T
+  public resolved: T
   private previous?: T
   private listeners: Array<(value: T) => void> = [] 
   private listeners_once: Array<(value: T) => void> = []

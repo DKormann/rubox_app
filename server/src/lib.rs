@@ -107,15 +107,6 @@ pub fn hash_app(setup:&str, functions:Vec<u256>)->u256{
 }
 
 
-// pub fn hash_key(owner:Identity, app:u256, key:&str)->u256{
-//   let mut hash = Sha256::new();
-//   hash.update(owner.to_be_byte_array());
-//   hash.update(app.to_be_bytes());
-//   hash.update(key);
-//   return u256::from_be_bytes(*hash.finalize().as_ref())
-// }
-
-
 pub fn hash_key(app:u256, key:&str)->u256{
   let mut hash = Sha256::new();
   hash.update(app.to_be_bytes());
@@ -263,4 +254,10 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
 
 #[reducer(client_connected)]
 pub fn identity_connected(_ctx: &ReducerContext) {
+  _ctx.db.returns().insert(Return{
+    owner:_ctx.sender,
+    app:u256::from(0u8),
+    id: 0,
+    content: "".to_string()
+  });
 }

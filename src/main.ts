@@ -3,9 +3,9 @@ export {}
 
 
 import { ChatService } from "./clients/chatbox"
-import { button, div, h2, p } from "./html"
+import { button, div, h2, p, popup } from "./html"
 import { ServerConnection, WSSURL } from "./userspace"
-import {ChessService } from "./clients/chess2"
+import {ChessService } from "./clients/chess"
 
 
 export type PageComponent = (server:ServerConnection) => HTMLElement
@@ -48,7 +48,22 @@ body.appendChild(h2("loading..."))
 
 
 async function setup(){
-  let server =  await ServerConnection.connect(serverurl)
+  // let server = await ServerConnection.connect(serverurl)
+  let server = null
+
+  try{
+    let [newserver, token] = await ServerConnection.connect(serverurl, localStorage.getItem(`${serverurl}-token`) ?? '')
+    localStorage.setItem(`${serverurl}-token`, token)
+    server = newserver
+
+  }catch (e){
+
+    localStorage.clear()
+    setup()
+    return 
+  }
+
+  console.log("server", server)
   
   const home = () => div(
     h2("welcome to the rubox"),

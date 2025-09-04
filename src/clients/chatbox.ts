@@ -133,7 +133,11 @@ export class ChatService {
   getName(id:IdString):Writable<string> {
     if (!this.nameCache.has(id)) {
       const nm = this.conn.call(id, msgApp.api.getname) as Promise<string>;
-      let res = new Writable<string>(nm)
+      let res = new Writable<string>(nm
+        .catch(e=>{
+          return "anonym"
+        })
+      )
       this.nameCache.set(id, res)
     }
     return this.nameCache.get(id)!

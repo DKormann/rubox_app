@@ -1,33 +1,32 @@
-
-
-import { button, div, h1, h2, p, popup } from "../html"
-import { ServerApp, DBRow, DBTable, DefaultContext, connectServer, IdString, ServerConnection } from "../userspace"
-import { Serial } from "../userspace"
-
-import { Writable } from "../store"
+import {button, div, h2, input, p, popup} from "../html"
 import { PageComponent } from "../main"
-
+import { Stored, Writable } from "../store"
+import { AppHandle, DefaultContext, IdString, ServerApp, ServerConnection, WSSURL } from "../userspace"
+import { ChatService, msgApp } from "./chatbox"
 
 
 type PieceType = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king" | "kingmoved" | "rookmoved" | "pawnmoved" | "pawnmoveddouble"
 
-type ChessPiece = {
+
+
+type Piece = {
   type: PieceType
   color: "white" | "black"
 }
 
-type Ps = ChessPiece| null
-type Row = [Ps, Ps, Ps, Ps, Ps, Ps, Ps, Ps]
-type Board = [Row, Row, Row, Row, Row, Row, Row, Row]
+type Pos = number;
 
+
+type Board = (Piece | null)[]; // 80x represents whole board
 
 type Match = {
-  white: IdString,
-  black: IdString,
-  board: Board,
-  turn: "white" | "black",
-  winner : "white" | "black" | "draw" | null
+  board: Board
+  white: IdString
+  black: IdString
+  turn: "white" | "black"
+  winner: "white" | "black" | "draw" | null
 }
+
 
 type Move = {
   start: Pos
@@ -36,216 +35,244 @@ type Move = {
 }
 
 
-let chessCtx = (c:DefaultContext):ChessContext=>{
+let chessApp : ServerApp <ChessContext> = {
 
-  let startBoard:Board = [
-    [{type: "rook", color: "white"}, {type: "knight", color: "white"}, {type: "bishop", color: "white"}, {type: "queen", color: "white"}, {type: "king", color: "white"}, {type: "bishop", color: "white"}, {type: "knight", color: "white"}, {type: "rook", color: "white"}],
-    [{type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}, {type: "pawn", color: "white"}],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [{type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}, {type: "pawn", color: "black"}],
-    [{type: "rook", color: "black"}, {type: "knight", color: "black"}, {type: "bishop", color: "black"}, {type: "queen", color: "black"}, {type: "king", color: "black"}, {type: "bishop", color: "black"}, {type: "knight", color: "black"}, {type: "rook", color: "black"}]
-  ]
+  name: "chess",
 
-  function posVec(pos:Pos):[number,number]{
-    return [pos % 10, Math.floor(pos / 10)]
-  }
+  loadApp : (c:DefaultContext)=>{
 
-  function vecPos(vec:[number,number]):Pos{
-    return vec[0] + (vec[1] * 10)
-  }
+    let startBoard : Board = [
+      {type:"rook", color:"white"}, {type:"knight", color:"white"}, {type:"bishop", color:"white"}, {type:"queen", color:"white"}, {type:"king", color:"white"}, {type:"bishop", color:"white"}, {type:"knight", color:"white"}, {type:"rook", color:"white"}, null, null,
+      {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, {type:"pawn", color:"white"}, null, null,
+      null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null,
+      {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, {type:"pawn", color:"black"}, null, null,
+      {type:"rook", color:"black"}, {type:"knight", color:"black"}, {type:"bishop", color:"black"}, {type:"queen", color:"black"}, {type:"king", color:"black"}, {type:"bishop", color:"black"}, {type:"knight", color:"black"}, {type:"rook", color:"black"}, null, null,
+    ]
 
-  function isPos(pos:Pos):boolean{
-    let [x,y] = posVec(pos)
-    return x >= 0 && x < 8 && y >= 0 && y < 8
-  }
+    function isPos(pos:Pos):boolean{
+      return pos >= 0 && pos < 80 && pos % 10 < 8
+    }
 
+    function getPieceAt(board:Board, pos:Pos):Piece|null{
+      return board[pos]
+    }
 
-  function getPieceAt(board:Board, pos:Pos):ChessPiece|null{
-    let [x,y] = posVec(pos)
-    return board[y][x]
-  }
-  
-  function arrSet<S>(arr:S[], index:number, value:S):S[]{
-    return arr.map((v,i)=>i == index ? value : v)
-  }
+    function arrSet<S>(arr:S[], index:number, value:S):S[]{
+      return arr.map((v,i)=>i==index?value:v)
+    }
 
-  function setPieceAt(board:Board, pos:Pos, piece:ChessPiece|null):Board{
-    let [x,y] = posVec(pos)
-    return arrSet(board, y, arrSet(board[y], x, piece)) as Board
-  }
-  
-  function hasKing(board:Board, color:"white"|"black"):boolean{
-    return board.filter((r,i)=>r.filter((p,j)=>(p && p.type == "king")).length > 0).length > 0
-  }
+    let setPieceAt = (pos:Pos, piece:Piece|null)=>(board:Board):Board=>{
+      return arrSet(board, pos, piece)
+    }
 
-  
-  function directions(p:ChessPiece):number[]{
-    let rook = [10,-10,1,-1]
-    let bish = [11, -11, 9, -9]
+    function hasKing(board:Board, color:"white"|"black"):boolean{
+      return board.filter((p, i)=> p && p.type == "king" && p.color == color).length > 0
+    }
+    
+    let left = 1
+    let right = -left
+    function directions(p:Piece):number[]{
+      let up = p.color == "white" ? 10 : -10;
+      let down = -up;
 
+      return p.type == "pawn" ? [up, up+up] :
+        p.type == "pawnmoved" || p.type == "pawnmoveddouble" ? [up] :
+        p.type == "knight" ? [up+left*2, up+right*2, down+left*2, down+right*2, up*2+left, up*2+right, down*2+left, down*2+right] :
+        p.type == "bishop" ? [up+left, up+right, down+left, down+right] :
+        (p.type == "rook" || p.type == "rookmoved")  ? [up, down, left, right] :
+        (p.type == "king" || p.type == "queen" || p.type == "kingmoved") ? [up, down, left, right, up+left, up+right, down+left, down+right] :
+        []
+    }
 
-    return p.type.startsWith("pawn") ? (p.color == "white" ? [10,20] : [-10,-20]) :
-      p.type.startsWith("knight") ? [12,8,21,19,-12,8,-21,-19] :
-      p.type.startsWith("bishop") ? bish :
-      p.type.startsWith("rook") ? rook :
-      p.type.startsWith("queen")||p.type.startsWith("king") ? bish.concat(rook) :
-      []
-  }
+    function getLegalMoves(board:Board, pos:Pos):Pos[]{
+      let piece = getPieceAt(board, pos)
+      if (!piece) {return []}
+      if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble"){
+        let moves =  directions(piece).map((d)=>pos+d).filter((p)=>isPos(p) && getPieceAt(board, p) == null)
 
-  function posadd(start:Pos, vec:[number, number]):Pos{
-    let [x,y] = posVec(start)
-    let [dx,dy] = vec
-    return vecPos([x+dx,y+dy])
-  }
+        let up = (piece.color == "white" ? 10 : -10);
 
-  function getPossibleMoves(board:Board, pos:Pos):Pos[]{
-
-    let piece = getPieceAt(board, pos)
-
-
-    if (!piece) return []
-    let res : Pos[] = []
-
-    let ty = piece.type
-    let dirs = directions(piece)
-    if (ty.startsWith("pawn")){
-      res = dirs
-      .map((vec)=>pos+vec)
-      .filter(isPos)
-      .filter((p)=>getPieceAt(board,p) == null)
-      let hity = piece.color == "white" ? 1 : -1
-
-
-      res = res.concat(
-        [1,-1]
-        .map(x=>posadd(pos,[x,hity]))
-        .filter(isPos)
-        .filter((pos)=>{
-          let target = getPieceAt(board,pos)
-          if (target) return target.color != piece.color
-          else{
-            target = getPieceAt(board, pos - (hity * 10))
-            return target && target.color != piece.color && target.type == "pawnmoveddouble"
-          }
+        let hits = [left,right]
+        .map((d) => pos + d + up)
+        .filter((t) => {
+          let target = getPieceAt(board,t);
+          return target && target.color != piece.color
         })
-      )
-    }else{
-      let ranged = ty.startsWith("rook") || ty.startsWith("bishop") || ty.startsWith("queen")
-      for (let dir of dirs){
-        let pp = pos
 
+        let passants = [left,right]
+        .map((d) => pos + d)
+        .filter((t) => {
+          let target = getPieceAt(board,t);
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {return true}
+          return false
+        })
+        .map((t)=>t+up)
 
-        
-        // while(true){
-        //   pp = pp+dir
-        //   if (!isPos(pp)) break
-        //   let tar = getPieceAt(board,pp)
-        //   if (tar){
-        //     if (piece.color !== tar.color) res.push(pp)
-        //     break
-        //   }
-        //   res.push(pp)
-        //   if (!ranged) break
-        // }
+        return [...moves, ...passants, ...hits]
+      }
 
-
-
-        function check(pp:Pos){
-          
-          let nextpp = pp + dir
-          let tar = getPieceAt(board,nextpp)          
-
+      let getRay = (pos:Pos, dir:number):Pos[]=>{
+        let pp = pos + dir
+        if (!isPos(pp)) {return []}
+        let target = getPieceAt(board, pp)
+        if (target) {
+          if (target.color == piece.color) {return []}
+          return [pp]
         }
 
-        
+        if (piece.type == "king" || piece.type == "kingmoved" || piece.type == "knight") {
+          return [pp]
+        }
+        return [pp, ...getRay(pp, dir)]
+      }
+      return directions(piece).reduce((acc, dir)=>{
+        return [...acc, ...getRay(pos, dir)]
+      }, [])
 
-      }
-      if (ty=="king"){
-        if (getPieceAt(board, pos +1) == null && getPieceAt(board,pos + 2) == null && getPieceAt(board, pos + 3)?.type == "rook") res.push(pos +2)
-        if (getPieceAt(board, pos -1) == null && getPieceAt(board,pos - 2) == null && getPieceAt(board, pos - 4)?.type == "rook") res.push(pos -2)
-      }
     }
-    return res
-  }
 
-  function getLegalMoves(board:Board, pos:Pos):Pos[]{
+    function makeMove(m:Match, move:Move):[string, Match]{
 
-    return getPossibleMoves(board, pos)
+      let piece = getPieceAt(m.board, move.start)
+      if (!piece) {return ["no piece at start", m]}
+      if (m.winner != null) {return ["game over", m]}
+      if (piece.color != m.turn) {return ["not your turn", m]}
+      
+      let options = getLegalMoves(m.board, move.start)
 
-  }
+      let dist = move.end - move.start
+      let npBoard = m.board.map((p)=> p && p.type == "pawnmoveddouble" ? {...p, type: "pawnmoved"} : p)
+      let ptype = (piece.type == "pawn" || piece.type == "pawnmoveddouble") ?
+          ((dist == 20 || dist == -20) ? "pawnmoveddouble" : "pawnmoved") :
+        (piece.type == "king") ? "kingmoved" :
+        (piece.type == "rook") ? "rookmoved" :
+        piece.type
+      
+      
 
-  function isInCheck(m:Match, color:"white"|"black"):boolean{
-    return false
-  }
-
-
-  function makeMove(m:Match, move:Move):[string, Match]{
-
-    let mover = getPieceAt(m.board, move.start)
-    if (!mover) return ["no piece at start", m]
-    if (m.winner != null) return ["game over", m]
-    if (!mover || mover.color !== m.turn) return ["not your turn", m]
-    let legalmoves = getLegalMoves(m.board, move.start)
-    if (!legalmoves.includes(move.end)) return ["illegal move", m]
-
-    if (mover.type == "pawn" || mover.type == "king" || mover.type == "rook") mover.type += "moved"
-    if (mover.type == "pawnmoved" && Math.abs(move.end - move.start) == 20) mover.type = "pawnmoveddouble" 
+      let newBoard = arrSet(arrSet(npBoard, move.start, null), move.end, {...piece, type:ptype}) as Board
+      if  (!options.includes(move.end)) {return ["Invalid move", m]}
 
 
-    let sendcond = (mover.type.startsWith("pawn")) && (move.start%10 != move.end%10) && (getPieceAt(m.board, move.end) == null)
-    let board: Board = sendcond ? setPieceAt(m.board, vecPos([move.end%10, Math.floor(move.start/10)]), null) : m.board;
+      let resMatch: Match = {
+        white: m.white,
+        black: m.black,
+        board: newBoard,
+        turn: m.turn == "white" ? "black" : "white",
+        winner: null
+      }
+
+      
+
+      if (ptype == "pawnmoved"){
+        if (dist % 10 != 0){
+          let passant = move.end % 10 + Math.floor(move.start / 10) * 10
+          let target = getPieceAt(resMatch.board, passant)
+
+          let pboard = arrSet(resMatch.board, passant, null)
+          if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
+            return ["", {...resMatch, board: pboard}]
+          }
+
+        }        
+      }
+      return ["", resMatch]
+    }
+    
+    return {
+      startBoard,
+      getLegalMoves,
+      makeMove,
+    } as ChessContext
+  },
+  api: {
+
+    startMatch: (c, arg)=>{
+
+      let match: Match = {
+        white: c.self,
+        black: c.other,
+        board: c.startBoard,
+        turn: "white",
+        winner: null
+      };
+
+      if (c.DB.get(true, "match_host")){
+        return ["already playing", null]
+      }
+
+      if (c.DB.get(false, "match_host")){
+        return ["opponent already playing", null]
+      }
+
+      c.DB.set(true, "match_host", c.self)
+      c.DB.set(false, "match_host", c.self)
+      c.DB.set(true, "match_data", match)
 
 
-    let dist = move.end - move.start;
+      return [null, match]
 
-    let board2 = (
-      mover.type.startsWith("king")
-      ? ( dist == 2 ? setPieceAt(setPieceAt(board, move.end + 1, {...mover, type:"rookmoved"}), move.end - 2, null)
-      : (dist == -2 ? setPieceAt(setPieceAt(board, move.end - 1, {...mover, type:"rookmoved"}), move.end + 1, null) : board))
-      : board
-    );
+    },
+
+    getHost: (c, arg)=>{
+      return c.DB.get(true, "match_host")
+    },
+
+    getMatch: (c, arg)=>{
+      return c.DB.get(false, "match_data")
+    },
 
 
-    let y = Math.floor(move.end/10)
+    resignMatch: (c, arg)=>{
+      let match = c.DB.get(false, "match_data") as Match;
 
-    let board4 = setPieceAt(setPieceAt(board2, move.end, (mover.type.startsWith("pawn") && (y == 0 || y == 7))? {...mover, type: move.promo} : mover), move.start, null)
+      let winner = match.white == c.self ? "black" : match.black == c.self ? "white" : null;
+      if (winner){
+        let newmatch = {
+          ...match,
+          winner: winner
+        };
+        c.DB.set(false, "match_data", newmatch);
+        c.notify(["new match", newmatch]);
+        c.DB.set(true, "match_host", null);
+        c.DB.set(false, "match_host", null);
+        return [null, newmatch];
+      }
+    },
 
-    return ["", {
-      ...m,
-      board: board4,
-      turn: m.turn == "white" ? "black" : "white",
-      winner: hasKing(board4,m.turn) == null ? (m.turn == "white" ? "black" : "white") : null
-    }]
-  }
+    makeMove: (c, arg)=>{
 
-  return {
-    startBoard,
-    makeMove,
-    getLegalMoves,
+      let match = c.DB.get(false, "match_data") as Match;
+      if (match.winner != null) {
+        return ["game over", match]
+      }
+      if (match.turn == "white" && match.white != c.self) {
+        return ["not your turn", match]
+      }
+      if (match.turn == "black" && match.black != c.self) {
+        return ["not your turn", match]
+      }
+
+      let [err, newmatch] = c.makeMove(match, arg[1]);
+      if (err) {
+        return [err, match]
+      }
+      c.DB.set(false, "match_data", newmatch);
+      c.notify(["new move", newmatch]);
+      return [err, newmatch];
+    },
   }
 }
 
+
 type ChessContext = {
-  startBoard : Board
+  startBoard: Board
   makeMove: (m:Match, move:Move) => [string, Match]
   getLegalMoves: (board:Board, pos:Pos) => Pos[]
 }
-
-let chessBox : ServerApp<ChessContext> = {
-  loadApp : chessCtx,
-
-  api:{
-
-    getBoard:(ctx,arg)=>{
-      return ctx.startBoard
-    }
-
-  }
-}
-
 
 let pieceImages = {
   "pawn": "p",
@@ -260,93 +287,208 @@ let pieceImages = {
   "pawnmoveddouble": "p"
 }
 
-type Pos = number
-
-
 let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6
-let chessBoard = div({class:"chessboard",style:{
-  backgroundColor: "#f0d9b5",
-  width: boardSize + "px",
-  height: boardSize + "px",
-  margin: "auto",
-  position: "relative",
-  cursor: "pointer",
-}})
 
 
-let displayBoard = (m:Match)=>{
+
+let focuspos = 0
+
+let displayBoard = (m:Match, onMove: (m:Move)=>void)=>{
+
+  let chessBoard = div({class:"chessboard",style:{
+    backgroundColor: "#f0d9b5",
+    width: boardSize + "px",
+    height: boardSize + "px",
+    margin: "auto",
+    position: "relative",
+    cursor: "pointer",
+  }})
+  
 
   chessBoard.innerHTML = ""
 
-  for (let j = 0; j < 8; j++) {
-    for (let i = 0; i < 8; i++) {
-      let square = div({class: "square"})
-      square.style.width = boardSize / 8 + "px"
-      square.style.height = boardSize / 8 + "px"
-      chessBoard.appendChild(square)
-      square.style.backgroundColor = (i + j) % 2 === 0 ? "#b58863" : "#f0d9b5"
+  chessBoard.appendChild(div(m.board.map((p, n)=>{
 
-      square.style.left = j * boardSize / 8 + "px"
-      square.style.bottom = i * boardSize / 8 + "px"
-      square.style.position = "absolute"
+    let x = n % 10
+    let y = Math.floor(n / 10)
 
+    let square = div({style:{
+      width: boardSize / 8 + "px",
+      height: boardSize / 8 + "px",
+      "background-color": (x + y) % 2 == 0 ?
+        (focuspos == n ? "#c5a8a3" : "#b58863") :
+        (focuspos == n ? "#c5a8a3" : "#a9a0a0"),
+      left: x * boardSize / 8 + "px",
+      bottom: y * boardSize / 8 + "px",
+      position: "absolute",
+    },
 
-      let piece = m.board[i][j]
+    
+    onclick: async ()=>{
+      let move = {
+        start: focuspos,
+        end: n,
+        promo: null
+      };
+      focuspos = focuspos == n ? null : n
+      onMove(move)
+    }})
 
-      if (piece){
-        let pieceElement = div( pieceImages[piece.type], {class:"piece"})
-        pieceElement.style.width = boardSize / 8 + "px"
-        pieceElement.style.height = boardSize / 8 + "px"
-        pieceElement.style.position = "absolute"
-        square.appendChild(pieceElement)
+    let piece = m.board[n]
 
-        pieceElement.style.color = piece.color === "white" ? "white" : "black"
-        pieceElement.style.fontWeight = "bold"
-        pieceElement.style.fontSize = boardSize / 8 + "px"
-      }
+    if (piece){
+      let pieceElement = div( pieceImages[piece.type], {
+        style:{
+          width: boardSize / 8 + "px",
+          height: boardSize / 8 + "px",
+          position: "absolute",
+          color: piece.color === "white" ? "white" : "black",
+          "font-weight": "bold",
+          "font-size": boardSize / 8 + "px",
+        }
+      })
+      square.appendChild(pieceElement)
     }
-  }
+
+    return x > 7 ? div() : square
+
+  })))
+
+  return chessBoard
 }
 
 
-export let chessView : PageComponent = (conn:ServerConnection) => {
 
 
-  conn.handle(chessBox).then(async ({call, users, subscribe})=>{
+type ChessNotification = {
+  type: "new move"
+  data: Match
+} | {
+  type: "new match"
+  data: IdString
+}
 
-    console.log("chess app loaded")
 
-    let board = await call(conn.identity, chessBox.api.getBoard).then((board)=>{
-      console.log("board", board)
+function getother (m:Match, self:IdString):IdString{
+  if (m.white == self) {return m.black}
+  if (m.black == self) {return m.white}
+  return null
+}
+
+export class ChessService {
+
+  match : Writable<Match> = new Writable<Match | null >(null)
+  conn: AppHandle
+
+  chatService: ChatService
+
+  host: Writable<IdString | null>
+
+
+  constructor(public server:ServerConnection){
+
+
+    this.conn = new AppHandle(server, chessApp, (note:ChessNotification)=>{
+      if (note.type == "new move"){
+        this.match.set(note.data);
+      }
+      if (note.type == "new match"){
+        this.host.set(note.data);
+      }
     })
-    
-  })
 
+    this.chatService = new ChatService(server)
 
+    this.host = new Writable<IdString | null>(null)
 
-  let pg = div({style:{
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100vh",
-    width: "100vw",
-    backgroundColor: "#f0d9b5",
-    "font-family": "monospace"
-  }})
+    this.host.subscribe((h)=>{
+      console.log("host:", h);
+      if (h){
+        this.conn.call(h, chessApp.api.getMatch).then((m:Match)=>{
+          this.match.set(m, true);
+        })
+      }else{
+        this.match.set(null, true);
+      }
+    })
 
-  pg.appendChild(chessBoard)
-
-  let match : Match = {
-    board: chessCtx(undefined).startBoard,
-    white: conn.identity,
-    black: "id123",
-    turn: "white",
-    winner: null,
+    this.conn.call(this.server.identity, chessApp.api.getHost).then((h:IdString | null)=>{
+      console.log("get host", h);
+      this.host.set(h,true);
+    })
   }
 
-  displayBoard(match)
 
-  return pg
+  render(){
 
+    // console.log("host:", this.host.get());
+    this.host.then((h)=>{
+      console.log("host:", h);
+    })
+
+    console.log("host:", this.host.resolved)
+
+    let chessRules = chessApp.loadApp(undefined);
+
+    return div(
+      {style:{
+        padding: "20px",
+      }},
+
+      h2("chess"),
+
+      
+      this.host.map(h=>{  
+        console.log("the host:", h);
+        let matchMaker = button("new match", {onclick: ()=>{
+          this.conn.users().then((users:IdString[])=>{
+            let oppicker = popup(
+              h2("choose an opponent"),
+              users.map(async (user)=>{
+                let occ = await this.conn.call(user, chessApp.api.getHost)
+                if (occ != null) return null
+                return p(
+                  button(this.chatService.getName(user), {onclick: ()=>{
+                    this.conn.call(user, chessApp.api.startMatch).then(([err, newmatch]:[string, Match])=>{
+                      if (err){
+                        popup(err);
+                      }else{
+                        this.match.set(newmatch);
+                        oppicker.remove();
+                      }
+                    })
+                  }})
+                )
+              })
+            )
+          })
+        }})
+
+        return h
+        ? this.match.map(m=>{
+          return [
+
+            displayBoard(m, (move)=>{
+              this.conn.call(h, chessApp.api.makeMove, [move])
+            }),
+            p("my name:", this.chatService.getName(this.conn.identity)),
+            p("opponent name:", this.chatService.getName(getother(m, this.conn.identity))),
+            p("turn:",m.turn),
+            p("winner:",m.winner),
+            m.winner == null ? button("resign", {onclick: ()=>{
+              this.conn.call(h, chessApp.api.resignMatch).then(([err, newmatch]:[string, Match])=>{
+                if (err){
+                  popup(err);
+                }else{
+                  this.match.set(newmatch);
+                }
+              })
+            }}) : matchMaker
+          ]
+        })
+        : matchMaker
+
+      }),
+    )
+  }
 }
