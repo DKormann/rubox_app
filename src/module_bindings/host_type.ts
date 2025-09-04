@@ -32,34 +32,34 @@ import {
   type ReducerEventContextInterface,
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
-
-export type Sethost = {
+export type Host = {
+  host: Identity,
   app: bigint,
-  value: boolean,
 };
 
 /**
  * A namespace for generated helper functions.
  */
-export namespace Sethost {
+export namespace Host {
   /**
   * A function which returns this type represented as an AlgebraicType.
   * This function is derived from the AlgebraicType used to generate this type.
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
+      new ProductTypeElement("host", AlgebraicType.createIdentityType()),
       new ProductTypeElement("app", AlgebraicType.createU256Type()),
-      new ProductTypeElement("value", AlgebraicType.createBoolType()),
     ]);
   }
 
-  export function serialize(writer: BinaryWriter, value: Sethost): void {
-    Sethost.getTypeScriptAlgebraicType().serialize(writer, value);
+  export function serialize(writer: BinaryWriter, value: Host): void {
+    Host.getTypeScriptAlgebraicType().serialize(writer, value);
   }
 
-  export function deserialize(reader: BinaryReader): Sethost {
-    return Sethost.getTypeScriptAlgebraicType().deserialize(reader);
+  export function deserialize(reader: BinaryReader): Host {
+    return Host.getTypeScriptAlgebraicType().deserialize(reader);
   }
 
 }
+
 

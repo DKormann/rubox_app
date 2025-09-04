@@ -2,9 +2,9 @@
 export {}
 
 
-import { ChatService } from "./clients/chatbox"
+import { ChatService, msgApp } from "./clients/chatbox"
 import { button, div, h2, p, popup } from "./html"
-import { ServerConnection, WSSURL } from "./userspace"
+import { AppHandle, ServerConnection, WSSURL } from "./userspace"
 import {ChessService } from "./clients/chess"
 
 
@@ -48,22 +48,18 @@ body.appendChild(h2("loading..."))
 
 
 async function setup(){
-  // let server = await ServerConnection.connect(serverurl)
-  let server = null
 
-  try{
-    let [newserver, token] = await ServerConnection.connect(serverurl, localStorage.getItem(`${serverurl}-token`) ?? '')
-    localStorage.setItem(`${serverurl}-token`, token)
-    server = newserver
+  let tokenLocation = `${serverurl}-token`
 
-  }catch (e){
-
+  let [server, token] = await ServerConnection.connect(serverurl, localStorage.getItem(tokenLocation) ?? '')
+  .catch(async(e)=>{
+    console.warn("error connecting to server", e)
     localStorage.clear()
-    setup()
-    return 
-  }
+    return await ServerConnection.connect(serverurl, "")
+  }) as [ServerConnection, string];
+  localStorage.setItem(tokenLocation, token)
 
-  console.log("server", server)
+
   
   const home = () => div(
     h2("welcome to the rubox"),

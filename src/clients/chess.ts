@@ -421,7 +421,6 @@ export class ChessService {
 
   render(){
 
-    // console.log("host:", this.host.get());
     this.host.then((h)=>{
       console.log("host:", h);
     })

@@ -44,7 +44,10 @@ export class ServerConnection {
   constructor(
     public identity: IdString,
     public server: DbConnection
-  ) {}
+  ) {
+
+    console.log("ServerConnection constructor")
+  }
 
   static connect(url:WSSURL, token:string): Promise<[ServerConnection, string]> {
 
@@ -100,7 +103,9 @@ export class ServerConnection {
         })
         resolve([server, token])
       })
-      .onConnectError(reject)
+      .onConnectError(e=>{
+        reject(e)
+      })
       .build()
     })
   }
@@ -108,13 +113,10 @@ export class ServerConnection {
   users(app:bigint): Promise<IdString[]>{
 
     return new Promise(async (resolve, reject)=>{
-      let key = await hashStoreKey(app, "host")
       this.server.subscriptionBuilder()
-      .onApplied(c=>{
-        resolve(Array.from(c.db.store.iter()).filter(s=>s.key == key).map(s=>IdString(s.owner)))
-      })
-      .onError(reject)
-      .subscribe([`SELECT * FROM store WHERE key = ${ key.toString()}`])
+      .onApplied(c=>{resolve(Array.from(c.db.host.iter()).filter(h=>h.app == app).map(h=>IdString(h.host)))})
+      .onError(console.error)
+      .subscribe([`SELECT * FROM host WHERE app = ${ app.toString()}`])
     })
   }
 }
@@ -142,7 +144,7 @@ export class AppHandle {
       let appHash = app.hash
       server.notifyListeners.set(appHash, onNotify)
       server.returnListeners.set(appHash, new Map())
-      server.server.reducers.sethost(appHash, true)
+      server.server.reducers.setHost(appHash, true)
       return app.hash
     })
   }

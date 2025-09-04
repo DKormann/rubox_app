@@ -20,11 +20,11 @@ use lang::parser::*;
 use crate::lang::{ast::{mk_call, mk_object, mk_string, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval, eval_native}};
 
 
-// #[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
-// pub struct Host{
-//   host:Identity,
-//   app:u256,
-// }
+#[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
+pub struct Host{
+  host:Identity,
+  app:u256,
+}
 
 
 #[table(name = app)]
@@ -114,17 +114,6 @@ pub fn hash_key(app:u256, key:&str)->u256{
   return u256::from_be_bytes(*hash.finalize().as_ref())
 }
 
-#[reducer]
-pub fn sethost(ctx: &ReducerContext, app:u256, value:bool){
-
-  if value{
-    ctx.db.store().insert(Store{key:hash_key(app, "host"), owner:ctx.sender, content:value.to_string()});
-  }else{
-    ctx.db.store().delete(Store{key:hash_key(app, "host"), owner:ctx.sender, content:value.to_string()});
-  }
-
-}
-
 
 
 pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&str)->u256{
@@ -142,9 +131,29 @@ fn identity_string(id:Identity)->String{
   format!("id{}", id.to_hex())
 }
 
+pub fn is_hosting(ctx: &ReducerContext, app:u256, other:Identity)->bool{
+  ctx.db.host().hostkey().filter((other, app)).next().is_some()
+}
+
+#[spacetimedb::reducer]
+pub fn set_host(ctx: &ReducerContext, app:u256, value:bool){
+  if value{
+    ctx.db.host().insert(Host{host:ctx.sender, app});
+  }else{
+    ctx.db.host().delete(Host{host:ctx.sender, app});
+  }
+}
+
 
 #[spacetimedb::reducer]
 pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, call_id: u32, arg:String)->Result<(), String>{
+
+  if !is_hosting(ctx, app, other){
+    return Err("app not installed on other".to_string());
+  }
+  if !is_hosting(ctx, app, ctx.sender){
+    return Err("app not installed on self".to_string());
+  }
 
   let dbctxex = mk_object(vec![
     ("DB".into(), mk_object(vec![
@@ -157,9 +166,6 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
     ]);
 
   let by_key_and_owner: RangedIndex<_, (u256, Identity), _> = ctx.db.store().storekey();
-  by_key_and_owner.filter((hash_key(app, "host"), other)).next().ok_or("app not installed on other")?;
-  by_key_and_owner.filter((hash_key(app, "host"), ctx.sender)).next().ok_or("app not installed on self")?;
-
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
   let setup = app.setup;
@@ -241,23 +247,17 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
     content:read_back(&res)
   };
 
-
-
-  if let Err(_) =
-    ctx.db.returns().try_insert(ret.clone()){
-    ctx.db.returns().owner().update(ret);
-  };
+  ctx.db.returns().owner().update(ret);
   Ok(())
 
 }
 
 
+
 #[reducer(client_connected)]
 pub fn identity_connected(_ctx: &ReducerContext) {
-  _ctx.db.returns().insert(Return{
-    owner:_ctx.sender,
-    app:u256::from(0u8),
-    id: 0,
-    content: "".to_string()
-  });
+  let dummy = Return{ owner:_ctx.sender, app:u256::from(0u8), id: 0, content: "".to_string() };
+  if let Err(_) = _ctx.db.returns().try_insert(dummy.clone()){
+    _ctx.db.returns().owner().update(dummy);
+  };
 }
