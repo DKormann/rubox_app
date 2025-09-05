@@ -122,18 +122,6 @@ pub fn hash_key(app:u256, key:&str)->u256{
 }
 
 
-
-pub fn hash_fun_args(owner:Identity, other:Identity, app:u256, lam:u256, arg:&str)->u256{
-  let mut hash = Sha256::new();
-  hash.update(owner.to_be_byte_array());
-  hash.update(other.to_be_byte_array());
-  hash.update(app.to_be_bytes());
-  hash.update(lam.to_be_bytes());
-  hash.update(arg);
-  return u256::from_be_bytes(*hash.finalize().as_ref())
-}
-
-
 fn identity_string(id:Identity)->String{
   format!("id{}", id.to_hex())
 }
@@ -152,13 +140,18 @@ pub fn set_host(ctx: &ReducerContext, app:u256, value:bool){
 }
 
 
-#[spacetimedb::reducer]
-pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, call_id: u32, arg:String)->Result<(), String>{
-
-  if !is_hosting(ctx, app, other){
-    return Err("app not installed on other".to_string());
+pub fn identity_from_string(s:&str)->Identity{
+  if s.starts_with("id"){
+    let (_, s) = s.split_at(2);
+    return Identity::from_hex(s).unwrap();
   }
-  if !is_hosting(ctx, app, ctx.sender){
+  Identity::from_hex(s).unwrap()
+}
+
+#[spacetimedb::reducer]
+pub fn call_lambda(ctx: &ReducerContext, app_hash:u256, lam:u256, call_id: u32, arg:String)->Result<(), String>{
+
+  if !is_hosting(ctx, app_hash, ctx.sender){
     return Err("app not installed on self".to_string());
   }
 
@@ -168,13 +161,12 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
       ("get".into(), (Value::NativeFn("DBGet".into())).into()),
     ])),
     ("self".into(), (Value::String(identity_string(ctx.sender)).into())),
-    ("other".into(), (Value::String(identity_string(other)).into())),
     ("notify".into(), (Value::NativeFn("Notify".into())).into()),
     ]);
 
   let by_key_and_owner: RangedIndex<_, (u256, Identity), _> = ctx.db.store().storekey();
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
-  let app = ctx.db.app().id().find(app).ok_or("app not found")?;
+  let app = ctx.db.app().id().find(app_hash).ok_or("app not found")?;
   let setup = app.setup;
 
   let lamex = parse(&lam.code).map_err(|e| e.to_string())?;
@@ -194,17 +186,20 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
   let native_fns = |fname: &str, args: Vec<Value>|{
 
     match (fname, args.as_slice()){
-      ("DBSet", [Value::Boolean(from_me), Value::String(key), content]) => {
+      ("DBSet", [Value::String(owner), Value::String(key), content]) => {
+        let owner = identity_from_string(&owner);
+        if !is_hosting(ctx, app_hash, owner){
+          return Err("app not installed on owner".to_string());
+        }
         let content = read_back(content);
-        let owner = if *from_me {ctx.sender} else {other};
         let key = hash_key(app.id, &key);
         log::info!("setting {}, {}, {}", owner, app.id, &key);
         by_key_and_owner.delete((key, owner));
         ctx.db.store().insert(Store{key, owner, content:content.clone()});        
         Ok(Value::Null)
       },
-      ("DBGet", [Value::Boolean(from_me), Value::String(key)]) => {
-        let owner = if *from_me {ctx.sender} else {other};
+      ("DBGet", [Value::String(owner), Value::String(key)]) => {
+        let owner = identity_from_string(&owner);
         let key = hash_key(app.id, &key);
         let val = match by_key_and_owner.filter((key,owner)).next(){
           Some(st) => {
@@ -216,11 +211,15 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
         Ok(val)
       },
 
-      ("Notify", [v]) => {
+      ("Notify", [Value::String(target), v]) => {
 
+        let target = identity_from_string(&target);
+        if !is_hosting(ctx, app_hash, target){
+          return Err("app not installed on target".to_string());
+        }
         let content = read_back(v);
         let note = Notification{
-          target:other,
+          target,
           app:app.id,
           sender:ctx.sender,
           arg:content
@@ -232,7 +231,7 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
         Ok(Value::Null)
       },
 
-      (_, _) => return Err("function not found".to_string())
+      (_, _) => return Err(format!("function {} not found", fname))
     }
   };
 
@@ -248,9 +247,6 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, cal
     },
     Err((e, logs)) => (LamResult::Err(format!("error in {}: {}", lam.code, e)), logs),
   };
-
-
-  let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
   let ret  = Return{
     owner:ctx.sender,

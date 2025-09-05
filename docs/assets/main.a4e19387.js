@@ -72,30 +72,70 @@ const style = "";
 class Writable {
   constructor(initialValue) {
     __publicField(this, "value");
+    __publicField(this, "resolved");
+    __publicField(this, "previous");
     __publicField(this, "listeners", []);
-    this.value = initialValue;
-  }
-  get() {
-    return this.value;
+    __publicField(this, "listeners_once", []);
+    this.set(initialValue);
   }
   set(newValue, force = false) {
-    if (!force && newValue === this.value)
-      return;
-    this.value = newValue;
-    for (const listener of this.listeners) {
-      listener(newValue);
+    if (newValue instanceof Promise) {
+      if (!force && newValue == this.value)
+        return;
+      this.previous = this.resolved;
+      this.resolved = void 0;
+      this.value = newValue;
+      this.value.then((v) => {
+        if (newValue != this.value)
+          return;
+        this.resolved = v;
+        if (v == this.previous)
+          return;
+        this.listeners.forEach((l) => l(v));
+        this.listeners_once.forEach((l) => l(v));
+        this.listeners_once = [];
+      });
+    } else {
+      if (!force && newValue == this.resolved)
+        return;
+      this.value = Promise.resolve(newValue);
+      this.resolved = newValue;
+      this.listeners.forEach((l) => l(newValue));
+      this.listeners_once.forEach((l) => l(newValue));
+      this.listeners_once = [];
     }
-  }
-  update(updater, force = false) {
-    const newValue = updater(this.value);
-    this.set(newValue, force);
   }
   subscribe(listener) {
     this.listeners.push(listener);
-    listener(this.value);
+    if (this.resolved != void 0)
+      listener(this.resolved);
   }
   subscribeLater(listener) {
     this.listeners.push(listener);
+  }
+  get() {
+    return new Promise((resolve, reject) => {
+      if (this.resolved != void 0)
+        return resolve(this.resolved);
+      let sub = (res) => {
+        resolve(res);
+      };
+      this.listeners_once.push(sub);
+    });
+  }
+  then(fn) {
+    return this.get().then(fn);
+  }
+  update(fn, force = false) {
+    this.set(this.get().then(fn), force);
+  }
+  map(mapper) {
+    let res = new Writable(new Promise(() => {
+    }));
+    this.subscribe((v) => {
+      res.set(mapper(v));
+    });
+    return res;
   }
 }
 class Stored extends Writable {
@@ -106,19 +146,14 @@ class Stored extends Writable {
     super(initialValue);
     __publicField(this, "key");
     this.key = key;
-  }
-  set(newValue, force = false) {
-    if (force || JSON.stringify(this.get()) !== JSON.stringify(newValue)) {
-      super.set(newValue);
-      localStorage.setItem(this.key, JSON.stringify(newValue));
-    }
+    this.subscribe((v) => {
+      localStorage.setItem(this.key, JSON.stringify(v));
+    });
   }
 }
 const htmlElement = (tag, text, cls = "", args) => {
   const _element = document.createElement(tag);
   _element.innerText = text;
-  if (cls)
-    _element.classList.add(...cls.split(".").filter((x) => x));
   if (args)
     Object.entries(args).forEach(([key, value]) => {
       if (key === "parent") {
@@ -136,6 +171,8 @@ const htmlElement = (tag, text, cls = "", args) => {
         Object.entries(value).forEach(([key2, value2]) => {
           _element.style.setProperty(key2, value2);
         });
+      } else if (key === "class") {
+        _element.classList.add(...value.split(".").filter((x) => x));
       } else {
         _element[key] = value;
       }
@@ -151,10 +188,12 @@ const html = (tag, ...cs) => {
     else if (typeof arg === "number")
       children.push(htmlElement("span", arg.toString()));
     else if (arg instanceof Writable) {
-      const el = span();
+      const el = span({ class: "writable-container" });
       arg.subscribe((value) => {
         el.innerHTML = "";
-        el.appendChild(span(value));
+        el.appendChild(span(value, { class: "writable-value" }));
+        console.log("new el:", el);
+        console.log(el.parentElement);
       });
       children.push(el);
     } else if (arg instanceof Promise) {
@@ -187,21 +226,23 @@ const input = (...cs) => {
   const content = cs.filter((c) => typeof c == "string").join(" ");
   const el = html("input", ...cs);
   if (writable) {
-    el.value = writable.get();
-    writable.subscribeLater((value) => {
-      if (el.value !== value.toString()) {
-        el.value = value.toString();
+    writable.subscribe((v) => {
+      if (el.value != v.toString()) {
+        el.value = v.toString();
       }
     });
-    el.oninput = (e) => {
-      writable.set(e.target.value);
+    el.onkeydown = (e) => {
+      if (e.key == "Enter") {
+        writable.set(el.value);
+      }
     };
   } else {
     el.value = content;
   }
   return el;
 };
-const popup = (dialogfield) => {
+const popup = (...cs) => {
+  const dialogfield = div(...cs);
   const popupbackground = div(
     { style: {
       "position": "fixed",
@@ -229,308 +270,6 @@ const popup = (dialogfield) => {
     e.stopPropagation();
   };
   return popupbackground;
-};
-const msgApp = {
-  loadApp: (c) => {
-    return {
-      pushMsg: (msg) => {
-        let d = {
-          sender: c.self,
-          receiver: c.other,
-          message: msg
-        };
-        c.DB.set(false, "messages", [...c.DB.get(false, "messages") ?? [], d]);
-        c.DB.set(true, "messages", [...c.DB.get(true, "messages") ?? [], d]);
-      }
-    };
-  },
-  api: {
-    setname: (ctx, arg) => {
-      ctx.DB.set(true, "name", arg);
-    },
-    getname: (ctx, arge) => {
-      return ctx.DB.get(false, "name");
-    },
-    sendMessage: (ctx, arg) => {
-      ctx.pushMsg(arg);
-    },
-    getMessages: (ctx, arg) => {
-      return ctx.DB.get(true, "messages");
-    }
-  }
-};
-console.log("FUN", msgApp.api.getMessages.toString());
-const chatView = (conn) => {
-  let nametable = /* @__PURE__ */ new Map();
-  let adis = p();
-  let el = div();
-  conn.handle(msgApp).then(async ({ call, users, subscribe }) => {
-    console.log("handle", msgApp);
-    async function getName(id) {
-      let cached = nametable.get(id);
-      if (cached)
-        return cached;
-      let writable = new Writable("");
-      call(id, msgApp.api.getname, id).then((name) => writable.set(name));
-      nametable.set(id, writable);
-      return writable;
-    }
-    let msgs = new Writable([]);
-    let msgDisplay = new Writable(div());
-    let other = new Stored("other", conn.identity);
-    function displayMsgs() {
-      msgDisplay.set(div(
-        msgs.get().filter((msg) => msg.receiver == other.get() && msg.sender == conn.identity || msg.sender == other.get() && msg.receiver == conn.identity).map((msg) => p(getName(msg.sender), " : ", msg.message)),
-        { style: { "max-width": "20em", "margin": "auto" } }
-      ));
-    }
-    call(conn.identity, msgApp.api.getMessages).then((m) => msgs.set(m ?? []));
-    msgs.subscribe((e) => displayMsgs());
-    other.subscribeLater((no) => displayMsgs());
-    subscribe(
-      "messages",
-      (c) => {
-        msgs.set(c ?? []);
-      }
-    );
-    let myname = input();
-    await getName(conn.identity).then((name) => name.subscribe((n) => myname.value = n));
-    let msginput = input();
-    let send = button("send");
-    send.onclick = async () => {
-      await call(other.get(), msgApp.api.sendMessage, msginput.value);
-      msginput.value = "";
-    };
-    let othername = new Writable("");
-    other.subscribe((id) => {
-      getName(id).then((name) => name.subscribe((n) => othername.set(n)));
-    });
-    el.appendChild(div(
-      h2("chat"),
-      adis,
-      p("my name:", myname, button("update", {
-        onclick: () => {
-          call(conn.identity, msgApp.api.setname, myname.value).then(() => {
-            getName(conn.identity).then((name) => name.set(myname.value));
-          });
-        }
-      })),
-      button("chat with: ", othername, { onclick: () => {
-        let el2 = popup(div(
-          h2("chat with"),
-          users().then((users2) => users2.map((user) => p(
-            getName(user),
-            { onclick: () => {
-              other.set(user);
-              el2.remove();
-            } }
-          )))
-        ));
-      } }),
-      msgDisplay,
-      p("send message:", msginput, send)
-    ));
-  });
-  return el;
-};
-let chessCtx$1 = (c) => {
-  let startBoard = [
-    [{ type: "rook", color: "white" }, { type: "knight", color: "white" }, { type: "bishop", color: "white" }, { type: "queen", color: "white" }, { type: "king", color: "white" }, { type: "bishop", color: "white" }, { type: "knight", color: "white" }, { type: "rook", color: "white" }],
-    [{ type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }, { type: "pawn", color: "white" }],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [{ type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }, { type: "pawn", color: "black" }],
-    [{ type: "rook", color: "black" }, { type: "knight", color: "black" }, { type: "bishop", color: "black" }, { type: "queen", color: "black" }, { type: "king", color: "black" }, { type: "bishop", color: "black" }, { type: "knight", color: "black" }, { type: "rook", color: "black" }]
-  ];
-  function posVec(pos) {
-    return [pos % 10, Math.floor(pos / 10)];
-  }
-  function vecPos(vec) {
-    return vec[0] + vec[1] * 10;
-  }
-  function isPos(pos) {
-    let [x, y] = posVec(pos);
-    return x >= 0 && x < 8 && y >= 0 && y < 8;
-  }
-  function getPieceAt(board, pos) {
-    let [x, y] = posVec(pos);
-    return board[y][x];
-  }
-  function arrSet(arr, index2, value) {
-    return arr.map((v, i) => i == index2 ? value : v);
-  }
-  function setPieceAt(board, pos, piece) {
-    let [x, y] = posVec(pos);
-    return arrSet(board, y, arrSet(board[y], x, piece));
-  }
-  function hasKing(board, color) {
-    return board.filter((r, i) => r.filter((p2, j) => p2 && p2.type == "king").length > 0).length > 0;
-  }
-  function directions(p2) {
-    let rook = [10, -10, 1, -1];
-    let bish = [11, -11, 9, -9];
-    return p2.type.startsWith("pawn") ? p2.color == "white" ? [10, 20] : [-10, -20] : p2.type.startsWith("knight") ? [12, 8, 21, 19, -12, 8, -21, -19] : p2.type.startsWith("bishop") ? bish : p2.type.startsWith("rook") ? rook : p2.type.startsWith("queen") || p2.type.startsWith("king") ? bish.concat(rook) : [];
-  }
-  function posadd(start, vec) {
-    let [x, y] = posVec(start);
-    let [dx, dy] = vec;
-    return vecPos([x + dx, y + dy]);
-  }
-  function getPossibleMoves(board, pos) {
-    let piece = getPieceAt(board, pos);
-    if (!piece)
-      return [];
-    let res = [];
-    let ty = piece.type;
-    let dirs = directions(piece);
-    if (ty.startsWith("pawn")) {
-      res = dirs.map((vec) => pos + vec).filter(isPos).filter((p2) => getPieceAt(board, p2) == null);
-      let hity = piece.color == "white" ? 1 : -1;
-      res = res.concat(
-        [1, -1].map((x) => posadd(pos, [x, hity])).filter(isPos).filter((pos2) => {
-          let target = getPieceAt(board, pos2);
-          if (target)
-            return target.color != piece.color;
-          else {
-            target = getPieceAt(board, pos2 - hity * 10);
-            return target && target.color != piece.color && target.type == "pawnmoveddouble";
-          }
-        })
-      );
-    } else {
-      ty.startsWith("rook") || ty.startsWith("bishop") || ty.startsWith("queen");
-      for (let dir of dirs) {
-      }
-      if (ty == "king") {
-        if (getPieceAt(board, pos + 1) == null && getPieceAt(board, pos + 2) == null && getPieceAt(board, pos + 3)?.type == "rook")
-          res.push(pos + 2);
-        if (getPieceAt(board, pos - 1) == null && getPieceAt(board, pos - 2) == null && getPieceAt(board, pos - 4)?.type == "rook")
-          res.push(pos - 2);
-      }
-    }
-    return res;
-  }
-  function getLegalMoves(board, pos) {
-    return getPossibleMoves(board, pos);
-  }
-  function makeMove(m, move) {
-    let mover = getPieceAt(m.board, move.start);
-    if (!mover)
-      return ["no piece at start", m];
-    if (m.winner != null)
-      return ["game over", m];
-    if (!mover || mover.color !== m.turn)
-      return ["not your turn", m];
-    let legalmoves = getLegalMoves(m.board, move.start);
-    if (!legalmoves.includes(move.end))
-      return ["illegal move", m];
-    if (mover.type == "pawn" || mover.type == "king" || mover.type == "rook")
-      mover.type += "moved";
-    if (mover.type == "pawnmoved" && Math.abs(move.end - move.start) == 20)
-      mover.type = "pawnmoveddouble";
-    let sendcond = mover.type.startsWith("pawn") && move.start % 10 != move.end % 10 && getPieceAt(m.board, move.end) == null;
-    let board = sendcond ? setPieceAt(m.board, vecPos([move.end % 10, Math.floor(move.start / 10)]), null) : m.board;
-    let dist = move.end - move.start;
-    let board2 = mover.type.startsWith("king") ? dist == 2 ? setPieceAt(setPieceAt(board, move.end + 1, { ...mover, type: "rookmoved" }), move.end - 2, null) : dist == -2 ? setPieceAt(setPieceAt(board, move.end - 1, { ...mover, type: "rookmoved" }), move.end + 1, null) : board : board;
-    let y = Math.floor(move.end / 10);
-    let board4 = setPieceAt(setPieceAt(board2, move.end, mover.type.startsWith("pawn") && (y == 0 || y == 7) ? { ...mover, type: move.promo } : mover), move.start, null);
-    return ["", {
-      ...m,
-      board: board4,
-      turn: m.turn == "white" ? "black" : "white",
-      winner: hasKing(board4, m.turn) == null ? m.turn == "white" ? "black" : "white" : null
-    }];
-  }
-  return {
-    startBoard,
-    makeMove,
-    getLegalMoves
-  };
-};
-let chessBox = {
-  loadApp: chessCtx$1,
-  api: {
-    getBoard: (ctx, arg) => {
-      return ctx.startBoard;
-    }
-  }
-};
-let pieceImages$1 = {
-  "pawn": "p",
-  "knight": "N",
-  "bishop": "B",
-  "rook": "R",
-  "queen": "Q",
-  "king": "K",
-  "kingmoved": "K",
-  "rookmoved": "R",
-  "pawnmoved": "p",
-  "pawnmoveddouble": "p"
-};
-let boardSize$1 = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6;
-let chessBoard$1 = div({ class: "chessboard", style: {
-  backgroundColor: "#f0d9b5",
-  width: boardSize$1 + "px",
-  height: boardSize$1 + "px",
-  margin: "auto",
-  position: "relative",
-  cursor: "pointer"
-} });
-let displayBoard$1 = (m) => {
-  chessBoard$1.innerHTML = "";
-  for (let j = 0; j < 8; j++) {
-    for (let i = 0; i < 8; i++) {
-      let square = div({ class: "square" });
-      square.style.width = boardSize$1 / 8 + "px";
-      square.style.height = boardSize$1 / 8 + "px";
-      chessBoard$1.appendChild(square);
-      square.style.backgroundColor = (i + j) % 2 === 0 ? "#b58863" : "#f0d9b5";
-      square.style.left = j * boardSize$1 / 8 + "px";
-      square.style.bottom = i * boardSize$1 / 8 + "px";
-      square.style.position = "absolute";
-      let piece = m.board[i][j];
-      if (piece) {
-        let pieceElement = div(pieceImages$1[piece.type], { class: "piece" });
-        pieceElement.style.width = boardSize$1 / 8 + "px";
-        pieceElement.style.height = boardSize$1 / 8 + "px";
-        pieceElement.style.position = "absolute";
-        square.appendChild(pieceElement);
-        pieceElement.style.color = piece.color === "white" ? "white" : "black";
-        pieceElement.style.fontWeight = "bold";
-        pieceElement.style.fontSize = boardSize$1 / 8 + "px";
-      }
-    }
-  }
-};
-let chessView$1 = (conn) => {
-  conn.handle(chessBox).then(async ({ call, users, subscribe }) => {
-    console.log("chess app loaded");
-    await call(conn.identity, chessBox.api.getBoard).then((board2) => {
-      console.log("board", board2);
-    });
-  });
-  let pg = div({ style: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100vh",
-    width: "100vw",
-    backgroundColor: "#f0d9b5",
-    "font-family": "monospace"
-  } });
-  pg.appendChild(chessBoard$1);
-  let match = {
-    board: chessCtx$1().startBoard,
-    white: conn.identity,
-    black: "id123",
-    turn: "white",
-    winner: null
-  };
-  displayBoard$1(match);
-  return pg;
 };
 const DEFAULT_ENCODING = "utf-8";
 function decoderError(fatal, opt_code_point = void 0) {
@@ -5205,9 +4944,9 @@ var CallLambda;
 ((CallLambda2) => {
   function getTypeScriptAlgebraicType() {
     return AlgebraicType.createProductType([
-      new ProductTypeElement("other", AlgebraicType.createIdentityType()),
-      new ProductTypeElement("app", AlgebraicType.createU256Type()),
+      new ProductTypeElement("appHash", AlgebraicType.createU256Type()),
       new ProductTypeElement("lam", AlgebraicType.createU256Type()),
+      new ProductTypeElement("callId", AlgebraicType.createU32Type()),
       new ProductTypeElement("arg", AlgebraicType.createStringType())
     ]);
   }
@@ -5221,6 +4960,21 @@ var CallLambda;
   }
   CallLambda2.deserialize = deserialize;
 })(CallLambda || (CallLambda = {}));
+var IdentityConnected;
+((IdentityConnected2) => {
+  function getTypeScriptAlgebraicType() {
+    return AlgebraicType.createProductType([]);
+  }
+  IdentityConnected2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
+  function serialize(writer, value) {
+    IdentityConnected2.getTypeScriptAlgebraicType().serialize(writer, value);
+  }
+  IdentityConnected2.serialize = serialize;
+  function deserialize(reader) {
+    return IdentityConnected2.getTypeScriptAlgebraicType().deserialize(reader);
+  }
+  IdentityConnected2.deserialize = deserialize;
+})(IdentityConnected || (IdentityConnected = {}));
 var AppData;
 ((AppData2) => {
   function getTypeScriptAlgebraicType() {
@@ -5256,24 +5010,24 @@ var Publish;
   }
   Publish2.deserialize = deserialize;
 })(Publish || (Publish = {}));
-var Sethost;
-((Sethost2) => {
+var SetHost;
+((SetHost2) => {
   function getTypeScriptAlgebraicType() {
     return AlgebraicType.createProductType([
       new ProductTypeElement("app", AlgebraicType.createU256Type()),
       new ProductTypeElement("value", AlgebraicType.createBoolType())
     ]);
   }
-  Sethost2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
+  SetHost2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
   function serialize(writer, value) {
-    Sethost2.getTypeScriptAlgebraicType().serialize(writer, value);
+    SetHost2.getTypeScriptAlgebraicType().serialize(writer, value);
   }
-  Sethost2.serialize = serialize;
+  SetHost2.serialize = serialize;
   function deserialize(reader) {
-    return Sethost2.getTypeScriptAlgebraicType().deserialize(reader);
+    return SetHost2.getTypeScriptAlgebraicType().deserialize(reader);
   }
-  Sethost2.deserialize = deserialize;
-})(Sethost || (Sethost = {}));
+  SetHost2.deserialize = deserialize;
+})(SetHost || (SetHost = {}));
 class AppTableHandle {
   constructor(tableCache) {
     __publicField(this, "tableCache");
@@ -5376,13 +5130,13 @@ class LambdaTableHandle {
     return this.tableCache.iter();
   }
 }
-class StoreTableHandle {
+class NotificationTableHandle {
   constructor(tableCache) {
     __publicField(this, "tableCache");
-    __publicField(this, "key", {
+    __publicField(this, "target", {
       find: (col_val) => {
         for (let row of this.tableCache.iter()) {
-          if (deepEqual(row.key, col_val)) {
+          if (deepEqual(row.target, col_val)) {
             return row;
           }
         }
@@ -5405,6 +5159,69 @@ class StoreTableHandle {
     });
     __publicField(this, "removeOnUpdate", (cb) => {
       return this.tableCache.removeOnUpdate(cb);
+    });
+    this.tableCache = tableCache;
+  }
+  count() {
+    return this.tableCache.count();
+  }
+  iter() {
+    return this.tableCache.iter();
+  }
+}
+class ReturnsTableHandle {
+  constructor(tableCache) {
+    __publicField(this, "tableCache");
+    __publicField(this, "owner", {
+      find: (col_val) => {
+        for (let row of this.tableCache.iter()) {
+          if (deepEqual(row.owner, col_val)) {
+            return row;
+          }
+        }
+      }
+    });
+    __publicField(this, "onInsert", (cb) => {
+      return this.tableCache.onInsert(cb);
+    });
+    __publicField(this, "removeOnInsert", (cb) => {
+      return this.tableCache.removeOnInsert(cb);
+    });
+    __publicField(this, "onDelete", (cb) => {
+      return this.tableCache.onDelete(cb);
+    });
+    __publicField(this, "removeOnDelete", (cb) => {
+      return this.tableCache.removeOnDelete(cb);
+    });
+    __publicField(this, "onUpdate", (cb) => {
+      return this.tableCache.onUpdate(cb);
+    });
+    __publicField(this, "removeOnUpdate", (cb) => {
+      return this.tableCache.removeOnUpdate(cb);
+    });
+    this.tableCache = tableCache;
+  }
+  count() {
+    return this.tableCache.count();
+  }
+  iter() {
+    return this.tableCache.iter();
+  }
+}
+class StoreTableHandle {
+  constructor(tableCache) {
+    __publicField(this, "tableCache");
+    __publicField(this, "onInsert", (cb) => {
+      return this.tableCache.onInsert(cb);
+    });
+    __publicField(this, "removeOnInsert", (cb) => {
+      return this.tableCache.removeOnInsert(cb);
+    });
+    __publicField(this, "onDelete", (cb) => {
+      return this.tableCache.onDelete(cb);
+    });
+    __publicField(this, "removeOnDelete", (cb) => {
+      return this.tableCache.removeOnDelete(cb);
     });
     this.tableCache = tableCache;
   }
@@ -5451,6 +5268,26 @@ var Host;
   }
   Host2.deserialize = deserialize;
 })(Host || (Host = {}));
+var LamResult;
+((LamResult2) => {
+  LamResult2.Ok = (value) => ({ tag: "Ok", value });
+  LamResult2.Err = (value) => ({ tag: "Err", value });
+  function getTypeScriptAlgebraicType() {
+    return AlgebraicType.createSumType([
+      new SumTypeVariant("Ok", AlgebraicType.createStringType()),
+      new SumTypeVariant("Err", AlgebraicType.createStringType())
+    ]);
+  }
+  LamResult2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
+  function serialize(writer, value) {
+    LamResult2.getTypeScriptAlgebraicType().serialize(writer, value);
+  }
+  LamResult2.serialize = serialize;
+  function deserialize(reader) {
+    return LamResult2.getTypeScriptAlgebraicType().deserialize(reader);
+  }
+  LamResult2.deserialize = deserialize;
+})(LamResult || (LamResult = {}));
 var Lambda;
 ((Lambda2) => {
   function getTypeScriptAlgebraicType() {
@@ -5469,6 +5306,47 @@ var Lambda;
   }
   Lambda2.deserialize = deserialize;
 })(Lambda || (Lambda = {}));
+var Notification;
+((Notification2) => {
+  function getTypeScriptAlgebraicType() {
+    return AlgebraicType.createProductType([
+      new ProductTypeElement("target", AlgebraicType.createIdentityType()),
+      new ProductTypeElement("app", AlgebraicType.createU256Type()),
+      new ProductTypeElement("sender", AlgebraicType.createIdentityType()),
+      new ProductTypeElement("arg", AlgebraicType.createStringType())
+    ]);
+  }
+  Notification2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
+  function serialize(writer, value) {
+    Notification2.getTypeScriptAlgebraicType().serialize(writer, value);
+  }
+  Notification2.serialize = serialize;
+  function deserialize(reader) {
+    return Notification2.getTypeScriptAlgebraicType().deserialize(reader);
+  }
+  Notification2.deserialize = deserialize;
+})(Notification || (Notification = {}));
+var Return;
+((Return2) => {
+  function getTypeScriptAlgebraicType() {
+    return AlgebraicType.createProductType([
+      new ProductTypeElement("owner", AlgebraicType.createIdentityType()),
+      new ProductTypeElement("app", AlgebraicType.createU256Type()),
+      new ProductTypeElement("id", AlgebraicType.createU32Type()),
+      new ProductTypeElement("logs", AlgebraicType.createArrayType(AlgebraicType.createStringType())),
+      new ProductTypeElement("result", LamResult.getTypeScriptAlgebraicType())
+    ]);
+  }
+  Return2.getTypeScriptAlgebraicType = getTypeScriptAlgebraicType;
+  function serialize(writer, value) {
+    Return2.getTypeScriptAlgebraicType().serialize(writer, value);
+  }
+  Return2.serialize = serialize;
+  function deserialize(reader) {
+    return Return2.getTypeScriptAlgebraicType().deserialize(reader);
+  }
+  Return2.deserialize = deserialize;
+})(Return || (Return = {}));
 var Store;
 ((Store2) => {
   function getTypeScriptAlgebraicType() {
@@ -5512,14 +5390,27 @@ const REMOTE_MODULE = {
         colType: Lambda.getTypeScriptAlgebraicType().product.elements[0].algebraicType
       }
     },
+    notification: {
+      tableName: "notification",
+      rowType: Notification.getTypeScriptAlgebraicType(),
+      primaryKey: "target",
+      primaryKeyInfo: {
+        colName: "target",
+        colType: Notification.getTypeScriptAlgebraicType().product.elements[0].algebraicType
+      }
+    },
+    returns: {
+      tableName: "returns",
+      rowType: Return.getTypeScriptAlgebraicType(),
+      primaryKey: "owner",
+      primaryKeyInfo: {
+        colName: "owner",
+        colType: Return.getTypeScriptAlgebraicType().product.elements[0].algebraicType
+      }
+    },
     store: {
       tableName: "store",
-      rowType: Store.getTypeScriptAlgebraicType(),
-      primaryKey: "key",
-      primaryKeyInfo: {
-        colName: "key",
-        colType: Store.getTypeScriptAlgebraicType().product.elements[0].algebraicType
-      }
+      rowType: Store.getTypeScriptAlgebraicType()
     }
   },
   reducers: {
@@ -5527,13 +5418,17 @@ const REMOTE_MODULE = {
       reducerName: "call_lambda",
       argsType: CallLambda.getTypeScriptAlgebraicType()
     },
+    identity_connected: {
+      reducerName: "identity_connected",
+      argsType: IdentityConnected.getTypeScriptAlgebraicType()
+    },
     publish: {
       reducerName: "publish",
       argsType: Publish.getTypeScriptAlgebraicType()
     },
-    sethost: {
-      reducerName: "sethost",
-      argsType: Sethost.getTypeScriptAlgebraicType()
+    set_host: {
+      reducerName: "set_host",
+      argsType: SetHost.getTypeScriptAlgebraicType()
     }
   },
   versionInfo: {
@@ -5560,8 +5455,8 @@ class RemoteReducers {
     this.connection = connection;
     this.setCallReducerFlags = setCallReducerFlags;
   }
-  callLambda(other, app, lam, arg) {
-    const __args = { other, app, lam, arg };
+  callLambda(appHash, lam, callId, arg) {
+    const __args = { appHash, lam, callId, arg };
     let __writer = new BinaryWriter(1024);
     CallLambda.getTypeScriptAlgebraicType().serialize(__writer, __args);
     let __argsBuffer = __writer.getBuffer();
@@ -5572,6 +5467,12 @@ class RemoteReducers {
   }
   removeOnCallLambda(callback) {
     this.connection.offReducer("call_lambda", callback);
+  }
+  onIdentityConnected(callback) {
+    this.connection.onReducer("identity_connected", callback);
+  }
+  removeOnIdentityConnected(callback) {
+    this.connection.offReducer("identity_connected", callback);
   }
   publish(app) {
     const __args = { app };
@@ -5586,25 +5487,25 @@ class RemoteReducers {
   removeOnPublish(callback) {
     this.connection.offReducer("publish", callback);
   }
-  sethost(app, value) {
+  setHost(app, value) {
     const __args = { app, value };
     let __writer = new BinaryWriter(1024);
-    Sethost.getTypeScriptAlgebraicType().serialize(__writer, __args);
+    SetHost.getTypeScriptAlgebraicType().serialize(__writer, __args);
     let __argsBuffer = __writer.getBuffer();
-    this.connection.callReducer("sethost", __argsBuffer, this.setCallReducerFlags.sethostFlags);
+    this.connection.callReducer("set_host", __argsBuffer, this.setCallReducerFlags.setHostFlags);
   }
-  onSethost(callback) {
-    this.connection.onReducer("sethost", callback);
+  onSetHost(callback) {
+    this.connection.onReducer("set_host", callback);
   }
-  removeOnSethost(callback) {
-    this.connection.offReducer("sethost", callback);
+  removeOnSetHost(callback) {
+    this.connection.offReducer("set_host", callback);
   }
 }
 class SetReducerFlags {
   constructor() {
     __publicField(this, "callLambdaFlags", "FullUpdate");
     __publicField(this, "publishFlags", "FullUpdate");
-    __publicField(this, "sethostFlags", "FullUpdate");
+    __publicField(this, "setHostFlags", "FullUpdate");
   }
   callLambda(flags) {
     this.callLambdaFlags = flags;
@@ -5612,8 +5513,8 @@ class SetReducerFlags {
   publish(flags) {
     this.publishFlags = flags;
   }
-  sethost(flags) {
-    this.sethostFlags = flags;
+  setHost(flags) {
+    this.setHostFlags = flags;
   }
 }
 class RemoteTables {
@@ -5628,6 +5529,12 @@ class RemoteTables {
   }
   get lambda() {
     return new LambdaTableHandle(this.connection.clientCache.getOrCreateTable(REMOTE_MODULE.tables.lambda));
+  }
+  get notification() {
+    return new NotificationTableHandle(this.connection.clientCache.getOrCreateTable(REMOTE_MODULE.tables.notification));
+  }
+  get returns() {
+    return new ReturnsTableHandle(this.connection.clientCache.getOrCreateTable(REMOTE_MODULE.tables.returns));
   }
   get store() {
     return new StoreTableHandle(this.connection.clientCache.getOrCreateTable(REMOTE_MODULE.tables.store));
@@ -5678,24 +5585,6 @@ async function hashString(s) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
   return toU256FromBytes(digest);
 }
-async function hashFunArgs(owner, other, app, lam, arg) {
-  const ownerBytes = u256ToBeBytes(owner.data);
-  const otherBytes = u256ToBeBytes(other.data);
-  const appBytes = u256ToBeBytes(app);
-  const lamBytes = u256ToBeBytes(lam);
-  const argBytes = textEncoder.encode(arg);
-  const allBytes = concatBytes([ownerBytes, otherBytes, appBytes, lamBytes, argBytes]);
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", allBytes));
-  return toU256FromBytes(digest);
-}
-async function hashStoreKey(owner, app, key) {
-  const ownerBytes = u256ToBeBytes(owner.data);
-  const appBytes = u256ToBeBytes(app);
-  const keyBytes = textEncoder.encode(key);
-  const allBytes = concatBytes([ownerBytes, appBytes, keyBytes]);
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", allBytes));
-  return toU256FromBytes(digest);
-}
 async function hashApp(app) {
   const lambdaHashes = await Promise.all(app.functions.map(hashString));
   const setupBytes = textEncoder.encode(app.setup);
@@ -5708,122 +5597,226 @@ async function hashApp(app) {
 const IdString = (id) => {
   return "id" + id.toHexString();
 };
-const IdentityFromString = (s) => {
-  return new Identity(s.slice(2));
-};
-function connectServer(url, dbname, tokenStore) {
-  return new Promise((resolve, reject) => {
-    let store_subs = /* @__PURE__ */ new Map();
-    DbConnection.builder().withUri(url).withModuleName(dbname).withToken(tokenStore.get()).onConnect(async (conn, identity, token) => {
-      tokenStore.set(token);
-      const storeCache = /* @__PURE__ */ new Map();
-      const hostCache = new Writable({});
-      conn.subscriptionBuilder().onApplied((c) => {
-        console.log("APPLIED");
-        c.db.store.onInsert((c2, store) => {
-          if (store.owner.data == identity.data) {
-            storeCache.set(store.key, store.content);
-            store_subs.get(store.key)?.forEach((sub) => sub(JSON.parse(store.content)));
-          }
-        });
-        c.db.host.onInsert((c2, host) => {
-          if (host.host.data == identity.data) {
-            hostCache.update((h) => {
-              h[host.app.toString()] = true;
-              return h;
-            }, true);
-          }
-        });
-        c.db.store.onUpdate((c2, old, news) => {
-          console.log("UPDATE", old, news);
-          if (news.owner.data == identity.data) {
-            storeCache.set(news.key, news.content);
-            store_subs.get(news.key)?.forEach((sub) => sub(JSON.parse(news.content)));
-          }
-        });
-        c.reducers.onCallLambda(async (ctx, other, app, lam, arg) => {
-          const key = await hashFunArgs(identity, other, app, lam, arg);
-          if (ctx.event.status.tag == "Failed")
-            lamQueue.get(key)?.reject(ctx.event.status.value);
-          else {
-            try {
-              let val = storeCache.get(key);
-              if (val == "undefined")
-                lamQueue.get(key)?.resolve(void 0);
-              else {
-                let [res, logs] = JSON.parse(val);
-                if (logs) {
-                  console.log("remote logs:");
-                  logs.forEach((l) => console.log(JSON.parse(l)));
-                }
-                lamQueue.get(key)?.resolve(res);
-              }
-            } catch (e) {
-              lamQueue.get(key)?.resolve(null);
-            }
-          }
-          lamQueue.delete(key);
-        });
-      }).onError(console.error).subscribe([
-        `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
-        `SELECT * FROM app`,
-        `SELECT * FROM lambda`,
-        `SELECT * FROM host WHERE host = '${identity.toHexString()}'`
-      ]);
-      const handle = async (box) => {
-        let hashed = await hashApp({
-          setup: box.loadApp.toString(),
-          functions: Object.values(box.api).map((fn) => fn.toString())
-        });
-        conn.reducers.publish({
-          setup: box.loadApp.toString(),
-          functions: Object.values(box.api).map((fn) => fn.toString())
-        });
-        let call = async (target, fn, arg = null) => {
-          return new Promise(async (resolve2, reject2) => {
-            const argstring = JSON.stringify(arg);
-            const funstring = fn.toString();
-            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring);
-            const lamH = await hashString(funstring);
-            lamQueue.set(callH, { resolve: resolve2, reject: reject2 });
-            conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring);
-          });
+class ServerConnection {
+  constructor(identity, server) {
+    __publicField(this, "notifyListeners", /* @__PURE__ */ new Map());
+    __publicField(this, "returnListeners", /* @__PURE__ */ new Map());
+    this.identity = identity;
+    this.server = server;
+  }
+  static connect(url, token) {
+    return new Promise(async (resolve, reject) => {
+      DbConnection.builder().withUri(url).withToken(token).withModuleName("rubox").onConnect(async (conn, identity, token2) => {
+        localStorage.setItem(`${url}-token`, token2);
+        let server = new ServerConnection(IdString(identity), conn);
+        const handleNotify = (note) => {
+          server.notifyListeners.get(note.app)?.(JSON.parse(note.arg));
         };
-        let users = () => {
-          return new Promise(async (resolve2, reject2) => {
-            let sub = conn.subscriptionBuilder().onApplied((c) => {
-              sub.unsubscribe();
-              resolve2(Array.from(c.db.host.iter()).filter((h) => h.app == hashed.hash).map((h) => IdString(h.host)));
-            }).onError(reject2).subscribe([
-              `SELECT * FROM host WHERE app = '${hashed.hash}'`
-            ]);
-          });
-        };
-        let apphandle = {
-          call,
-          users,
-          subscribe: async (keyname, callback) => {
-            const key = await hashStoreKey(identity, hashed.hash, keyname);
-            if (!store_subs.has(key))
-              store_subs.set(key, []);
-            store_subs.get(key)?.push(callback);
+        const handleReturn = (ret) => {
+          if (!ret.app) {
+            return;
           }
+          if (ret.logs.length > 0) {
+            console.info("logs:");
+            ret.logs.forEach((l) => console.log(l));
+          }
+          let expector = server.returnListeners.get(ret.app)?.get(ret.id);
+          if (!expector) {
+            return;
+          }
+          ret.result.tag == "Ok" ? expector.resolve(JSON.parse(ret.result.value)) : expector.reject(ret.result.value);
         };
-        return new Promise((resolve2, reject2) => {
-          let hash = hashed.hash.toString();
-          hostCache.subscribe((h) => {
-            if (h[hash])
-              resolve2(apphandle);
+        conn.subscriptionBuilder().onApplied((c) => {
+          c.db.notification.onInsert((c2, note) => {
+            handleNotify(note);
           });
-          conn.reducers.sethost(hashed.hash, true);
+          c.db.returns.onInsert((c2, ret) => {
+            handleReturn(ret);
+          });
+          c.db.notification.onUpdate((c2, old, note) => {
+            handleNotify(note);
+          });
+          c.db.returns.onUpdate((c2, old, ret) => {
+            handleReturn(ret);
+          });
+        }).onError(console.error).subscribe([
+          `SELECT * FROM notification WHERE target = '${identity.toHexString()}'`,
+          `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`
+        ]);
+        conn.reducers.onCallLambda((c, a, l, id, arg) => {
+          if (c.event.status.tag == "Failed") {
+            console.warn("onCallLambda failed", id, c.event.status.value);
+            server.returnListeners.get(a)?.get(id)?.reject(c.event.status.value);
+          }
         });
-      };
-      const lamQueue = /* @__PURE__ */ new Map();
-      resolve({ identity: IdString(identity), handle });
-    }).build();
-  });
+        resolve([server, token2]);
+      }).onConnectError((e) => {
+        reject(e);
+      }).build();
+    });
+  }
+  users(app) {
+    return new Promise(async (resolve, reject) => {
+      this.server.subscriptionBuilder().onApplied((c) => {
+        resolve(Array.from(c.db.host.iter()).filter((h) => h.app == app).map((h) => IdString(h.host)));
+      }).onError(console.error).subscribe([`SELECT * FROM host WHERE app = ${app.toString()}`]);
+    });
+  }
 }
-let chessCtx = {
+class AppHandle {
+  constructor(server, box, onNotify) {
+    __publicField(this, "callCounter", 0);
+    __publicField(this, "identity");
+    __publicField(this, "app");
+    this.server = server;
+    this.identity = server.identity;
+    let appData = {
+      setup: box.loadApp.toString(),
+      functions: Object.values(box.api).map((fn) => fn.toString())
+    };
+    server.server.reducers.publish(appData);
+    this.app = hashApp(appData).then((app) => {
+      let appHash = app.hash;
+      server.notifyListeners.set(appHash, onNotify);
+      server.returnListeners.set(appHash, /* @__PURE__ */ new Map());
+      server.server.reducers.setHost(appHash, true);
+      return app.hash;
+    });
+  }
+  async call(fn, arg = null) {
+    if (!fn) {
+      throw new Error("fn must be a function: " + fn);
+    }
+    return new Promise(async (resolve, reject) => {
+      let funHash = await hashString(fn.toString());
+      let appHash = await this.app;
+      this.server.returnListeners.get(appHash)?.set(this.callCounter, { resolve, reject });
+      this.server.server.reducers.callLambda(appHash, funHash, this.callCounter, JSON.stringify(arg));
+      this.callCounter += 1;
+    });
+  }
+  async users() {
+    return this.server.users(await this.app);
+  }
+}
+const msgApp = {
+  name: "chatbox",
+  loadApp: (c) => {
+    return {
+      pushMsg: (target, msg) => {
+        let d = {
+          sender: c.self,
+          receiver: target,
+          message: msg
+        };
+        c.DB.set(target, "messages", [...c.DB.get(target, "messages") ?? [], d]);
+        if (c.self == target) {
+          return null;
+        }
+        let prev = c.DB.get(c.self, "messages");
+        c.DB.set(c.self, "messages", [...prev ?? [], d]);
+        c.notify(target, ["new message", prev ? prev.length : 0]);
+      }
+    };
+  },
+  api: {
+    setname: (ctx, arg) => {
+      ctx.DB.set(ctx.self, "name", arg);
+    },
+    getname: (ctx, target) => {
+      return ctx.DB.get(target, "name") || "anonym";
+    },
+    sendMessage: (ctx, arg) => {
+      ctx.pushMsg(arg.target, arg.message);
+    },
+    getMessages: (ctx, arg) => {
+      return ctx.DB.get(ctx.self, "messages") || [];
+    }
+  }
+};
+const _ChatService = class {
+  constructor(server) {
+    __publicField(this, "nameCache", /* @__PURE__ */ new Map());
+    __publicField(this, "msgs", new Writable([]));
+    __publicField(this, "active_partner");
+    __publicField(this, "conn");
+    let instance = _ChatService.instances.find((i) => i.conn.server == server);
+    if (instance)
+      return instance;
+    console.log("creating chat service");
+    this.conn = new AppHandle(server, msgApp, (note) => this.refreshMsgs());
+    this.active_partner = new Stored(`chat_partner_${this.conn.app}`, this.conn.identity);
+  }
+  render() {
+    let myname = this.getName(this.conn.identity);
+    myname.get().then((n) => {
+      myname.subscribeLater((n2) => {
+        this.conn.call(msgApp.api.setname, n2).then(() => popup("name updated: ", n2));
+      });
+    });
+    this.refreshMsgs();
+    return div(
+      h2("chatbox"),
+      p("my name:", input(myname)),
+      p("active users:"),
+      this.conn.users().then((us) => us.map(
+        (u) => p(this.getName(u), " ", button("message", { onclick: () => {
+          this.active_partner.set(u);
+        } }))
+      )),
+      p("chatting with:", this.active_partner.map((p2) => this.getName(p2))),
+      p("messages:"),
+      this.active_partner.map((partner) => this.filterMsgs(partner).map((m) => m.map((m2) => p(this.getName(m2.sender), " : ", m2.message)))),
+      input({
+        placeholder: "enter message",
+        onkeydown: (e) => {
+          if (e.key === "Enter") {
+            let inp = e.target;
+            this.sendMessage(inp.value);
+            inp.value = "";
+          }
+        }
+      })
+    );
+  }
+  async sendMessage(message) {
+    await this.sendMessageTo(message, await this.active_partner.get());
+  }
+  async sendMessageTo(message, target) {
+    await this.conn.call(msgApp.api.sendMessage, { target, message }).then(() => {
+      this.refreshMsgs();
+    });
+  }
+  filterMsgs(partner) {
+    return this.msgs.map((m) => m.filter((m2) => m2.receiver == partner && m2.sender == this.conn.identity || m2.sender == partner && m2.receiver == this.conn.identity)).map((m) => {
+      console.log("filtering messages for", partner);
+      console.log("messages", m);
+      return m;
+    });
+  }
+  async refreshMsgs() {
+    await this.conn.call(msgApp.api.getMessages).then((m) => m).then((m) => this.msgs.set(m));
+  }
+  getName(id) {
+    if (!this.nameCache.has(id)) {
+      const nm = this.conn.call(msgApp.api.getname, id);
+      let res = new Writable(
+        nm.catch((e) => {
+          return "anonym";
+        })
+      );
+      this.nameCache.set(id, res);
+    }
+    return this.nameCache.get(id);
+  }
+  async setName(name) {
+    await this.conn.call(msgApp.api.setname, name);
+  }
+};
+let ChatService = _ChatService;
+__publicField(ChatService, "instances", []);
+let chessApp = {
+  name: "chess",
   loadApp: (c) => {
     let startBoard = [
       { type: "rook", color: "white" },
@@ -5928,25 +5921,6 @@ let chessCtx = {
       if (!piece) {
         return [];
       }
-      if (piece.type == "rook" || piece.type == "bishop" || piece.type == "queen" || piece.type == "rookmoved") {
-        let getRay = (pos2, dir) => {
-          let pp = pos2 + dir;
-          if (!isPos(pp)) {
-            return [];
-          }
-          let target = getPieceAt(board, pp);
-          if (target) {
-            if (target.color == piece.color) {
-              return [];
-            }
-            return [pp];
-          }
-          return [pp, ...getRay(pp, dir)];
-        };
-        return directions(piece).reduce((acc, dir) => {
-          return [...acc, ...getRay(pos, dir)];
-        }, []);
-      }
       if (piece.type == "pawn" || piece.type == "pawnmoved" || piece.type == "pawnmoveddouble") {
         let moves = directions(piece).map((d) => pos + d).filter((p2) => isPos(p2) && getPieceAt(board, p2) == null);
         let up = piece.color == "white" ? 10 : -10;
@@ -5954,7 +5928,6 @@ let chessCtx = {
           let target = getPieceAt(board, t);
           return target && target.color != piece.color;
         });
-        console.log({ hits });
         let passants = [left, right].map((d) => pos + d).filter((t) => {
           let target = getPieceAt(board, t);
           if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
@@ -5964,10 +5937,26 @@ let chessCtx = {
         }).map((t) => t + up);
         return [...moves, ...passants, ...hits];
       }
-      return directions(piece).map((d) => pos + d).filter((p2) => {
-        let target = getPieceAt(board, p2);
-        return !target || target.color != piece.color;
-      });
+      let getRay = (pos2, dir) => {
+        let pp = pos2 + dir;
+        if (!isPos(pp)) {
+          return [];
+        }
+        let target = getPieceAt(board, pp);
+        if (target) {
+          if (target.color == piece.color) {
+            return [];
+          }
+          return [pp];
+        }
+        if (piece.type == "king" || piece.type == "kingmoved" || piece.type == "knight") {
+          return [pp];
+        }
+        return [pp, ...getRay(pp, dir)];
+      };
+      return directions(piece).reduce((acc, dir) => {
+        return [...acc, ...getRay(pos, dir)];
+      }, []);
     }
     function makeMove(m, move) {
       let piece = getPieceAt(m.board, move.start);
@@ -5981,7 +5970,6 @@ let chessCtx = {
         return ["not your turn", m];
       }
       let options = getLegalMoves(m.board, move.start);
-      console.log({ options });
       let dist = move.end - move.start;
       let npBoard = m.board.map((p2) => p2 && p2.type == "pawnmoveddouble" ? { ...p2, type: "pawnmoved" } : p2);
       let ptype = piece.type == "pawn" || piece.type == "pawnmoveddouble" ? dist == 20 || dist == -20 ? "pawnmoveddouble" : "pawnmoved" : piece.type == "king" ? "kingmoved" : piece.type == "rook" ? "rookmoved" : piece.type;
@@ -5990,15 +5978,14 @@ let chessCtx = {
         return ["Invalid move", m];
       }
       let resMatch = {
+        ...m,
         board: newBoard,
-        turn: m.turn == "white" ? "black" : "white",
-        winner: null
+        turn: m.turn == "white" ? "black" : "white"
       };
       if (ptype == "pawnmoved") {
         if (dist % 10 != 0) {
           let passant = move.end % 10 + Math.floor(move.start / 10) * 10;
           let target = getPieceAt(resMatch.board, passant);
-          console.log({ target, passant });
           let pboard = arrSet(resMatch.board, passant, null);
           if (target && target.type == "pawnmoveddouble" && target.color != piece.color) {
             return ["", { ...resMatch, board: pboard }];
@@ -6014,14 +6001,80 @@ let chessCtx = {
     };
   },
   api: {
-    getstartBoard: (c, arg) => {
-      return c.startBoard;
+    startMatch: (c, target) => {
+      let match = {
+        host: c.self,
+        white: c.self,
+        black: target,
+        board: c.startBoard,
+        turn: "white",
+        winner: null
+      };
+      if (c.DB.get(c.self, "match_host")) {
+        return ["already playing", null];
+      }
+      if (c.DB.get(target, "match_host")) {
+        return ["opponent already playing", null];
+      }
+      c.DB.set(c.self, "match_host", c.self);
+      c.DB.set(target, "match_host", c.self);
+      c.DB.set(c.self, "match_data", match);
+      c.notify(target, {
+        type: "new match",
+        data: match
+      });
+      return ["", match];
     },
-    getMoves: (c, arg) => {
-      return c.getLegalMoves(c.startBoard, 10);
+    getHost: (c, arg) => {
+      return c.DB.get(c.self, "match_host");
     },
-    mkMove: (c, arg) => {
-      return c.makeMove(arg[0], arg[1]);
+    getMatch: (c, arg) => {
+      let host = c.DB.get(c.self, "match_host");
+      if (!host) {
+        return null;
+      }
+      return c.DB.get(host, "match_data");
+    },
+    resignMatch: (c, host) => {
+      let match = c.DB.get(host, "match_data");
+      if (match.black != c.self && match.white != c.self) {
+        return ["not your match", null];
+      }
+      let other = match.white == c.self ? match.black : match.white;
+      let newmatch = {
+        ...match,
+        winner: other
+      };
+      c.DB.set(host, "match_data", newmatch);
+      c.notify(other, {
+        type: "game over",
+        data: newmatch
+      });
+      c.DB.set(c.self, "match_host", null);
+      c.DB.set(other, "match_host", null);
+      return ["", newmatch];
+    },
+    requestMove: (c, arg) => {
+      let match = c.DB.get(arg.host, "match_data");
+      if (match.winner != null) {
+        return ["game over", match];
+      }
+      if (match.turn == "white" && match.white != c.self) {
+        return ["not your turn", match];
+      }
+      if (match.turn == "black" && match.black != c.self) {
+        return ["not your turn", match];
+      }
+      let [err, newmatch] = c.makeMove(match, arg.move);
+      if (err.length > 0) {
+        return [err, match];
+      }
+      c.DB.set(arg.host, "match_data", newmatch);
+      c.notify(
+        match.white == c.self ? match.black : match.white,
+        { type: "new move", data: newmatch }
+      );
+      return [err, newmatch];
     }
   }
 };
@@ -6038,16 +6091,16 @@ let pieceImages = {
   "pawnmoveddouble": "p"
 };
 let boardSize = (window.innerWidth < window.innerHeight ? window.innerWidth : window.innerHeight) * 0.6;
-let chessBoard = div({ class: "chessboard", style: {
-  backgroundColor: "#f0d9b5",
-  width: boardSize + "px",
-  height: boardSize + "px",
-  margin: "auto",
-  position: "relative",
-  cursor: "pointer"
-} });
 let focuspos = 0;
-let displayBoard = (m) => {
+let displayBoard = (m, onMove) => {
+  let chessBoard = div({ class: "chessboard", style: {
+    backgroundColor: "#f0d9b5",
+    width: boardSize + "px",
+    height: boardSize + "px",
+    margin: "auto",
+    position: "relative",
+    cursor: "pointer"
+  } });
   chessBoard.innerHTML = "";
   chessBoard.appendChild(div(m.board.map((p2, n) => {
     let x = n % 10;
@@ -6061,15 +6114,14 @@ let displayBoard = (m) => {
         bottom: y * boardSize / 8 + "px",
         position: "absolute"
       },
-      onclick: () => {
-        let [error, next] = focuspos == null || focuspos == n ? [null, m] : chessCtx.loadApp(void 0).makeMove(m, {
+      onclick: async () => {
+        let move = {
           start: focuspos,
           end: n,
           promo: null
-        });
+        };
         focuspos = focuspos == n ? null : n;
-        console.log(error);
-        displayBoard(error ? m : next);
+        onMove(move);
       }
     });
     let piece = m.board[n];
@@ -6088,35 +6140,147 @@ let displayBoard = (m) => {
     }
     return x > 7 ? div() : square;
   })));
+  return chessBoard;
 };
-let chessView = (conn) => {
-  let ctx = chessCtx.loadApp(void 0);
-  let m = {
-    board: ctx.startBoard,
-    turn: "white",
-    winner: null
-  };
-  conn.handle(chessCtx).then(({ call, users }) => {
-    call(conn.identity, chessCtx.api.getstartBoard, null).then((m2) => {
-      let b = {
-        board: m2,
-        turn: "white",
-        winner: null
-      };
-      displayBoard(b);
+function getother(m, self2) {
+  if (m.white == self2) {
+    return m.black;
+  }
+  if (m.black == self2) {
+    return m.white;
+  }
+  return null;
+}
+class ChessService {
+  constructor(server) {
+    __publicField(this, "match", new Writable(null));
+    __publicField(this, "conn");
+    __publicField(this, "chatService");
+    this.server = server;
+    this.conn = new AppHandle(server, chessApp, (note) => {
+      if (note.type == "new move") {
+        this.match.set(note.data);
+      } else if (note.type == "new match") {
+        this.match.set(note.data);
+      } else if (note.type == "game over") {
+        this.match.set(note.data);
+      }
     });
-    call(conn.identity, chessCtx.api.mkMove, [m, { start: 10, end: 20, promo: null }]).then((resp) => {
-      console.log("resp", resp);
-      let [err, m2] = resp;
-      console.log(err, m2);
-      displayBoard(m2);
+    this.chatService = new ChatService(server);
+    this.conn.call(chessApp.api.getHost).then((h) => {
+      if (h) {
+        this.conn.call(chessApp.api.getMatch, h).then((m) => {
+          this.match.set(m);
+        });
+      } else {
+        this.match.set(null, true);
+      }
     });
-  });
-  displayBoard(m);
-  let el = div({ class: "chess-container" });
-  el.appendChild(chessBoard);
-  return el;
-};
+  }
+  render() {
+    let matchMaker = button("new match", { onclick: () => {
+      this.conn.users().then((users) => {
+        let oppicker = popup(
+          h2("choose an opponent"),
+          users.map(async (user) => {
+            let occ = await this.conn.call(chessApp.api.getHost);
+            if (occ != null)
+              return null;
+            return p(
+              button(this.chatService.getName(user), { onclick: () => {
+                this.conn.call(chessApp.api.startMatch, user).then(([err, newmatch]) => {
+                  if (err) {
+                    popup(err);
+                  } else {
+                    this.match.set(newmatch);
+                  }
+                });
+                oppicker.remove();
+              } })
+            );
+          })
+        );
+      });
+    } });
+    let showChat = new Stored("show_chat_chess", true);
+    let opponent = this.match.map((m) => m ? getother(m, this.conn.identity) : null);
+    let msgsView = div();
+    opponent.subscribe((o) => {
+      msgsView.innerHTML = "";
+      if (o) {
+        this.chatService.refreshMsgs().then(() => {
+          this.chatService.filterMsgs(o).subscribe((m) => {
+            msgsView.innerHTML = "";
+            msgsView.appendChild(div(m.map((m2) => p(this.chatService.getName(m2.sender), " : ", m2.message))));
+          });
+        });
+      }
+    });
+    let chatview = showChat.map(
+      (h) => div(
+        h && opponent ? [
+          button("x", { onclick: () => showChat.set(false) }),
+          h2("chat"),
+          msgsView,
+          input({ onkeydown: async (e) => {
+            if (e.key === "Enter") {
+              let inp = e.target;
+              await this.chatService.sendMessageTo(inp.value, await opponent.get());
+              inp.value = "";
+            }
+          } })
+        ] : button("open chat", { onclick: () => showChat.set(true) }),
+        {
+          style: {
+            position: "absolute",
+            top: "1em",
+            right: "1em",
+            zIndex: "1000",
+            "max-width": "20em",
+            border: "1px solid #000",
+            "border-radius": "1em",
+            "background-color": "var(--bg)"
+          }
+        }
+      )
+    );
+    return div(
+      { style: {
+        padding: "20px"
+      } },
+      h2("chess"),
+      this.match.map((m) => {
+        if (m) {
+          let host = m.host;
+          getother(m, this.conn.identity);
+          return [
+            displayBoard(m, (move) => {
+              this.conn.call(chessApp.api.requestMove, { move, host }).then(([err, newmatch]) => {
+                this.match.set(newmatch);
+              });
+            }),
+            p("my name:", this.chatService.getName(this.conn.identity)),
+            p("white:", this.chatService.getName(m.white)),
+            p("black:", this.chatService.getName(m.black)),
+            p("turn:", m.turn),
+            p("winner:", m.winner),
+            m.winner == null ? button("resign", { onclick: () => {
+              this.conn.call(chessApp.api.resignMatch, null).then(([err, newmatch]) => {
+                if (err) {
+                  popup(err);
+                } else {
+                  this.match.set(newmatch);
+                }
+              });
+            } }) : matchMaker,
+            chatview
+          ];
+        }
+        return matchMaker;
+      })
+    );
+  }
+}
 const appname = "rubox_app";
 document.title = appname;
 function getLocation() {
@@ -6130,47 +6294,68 @@ function getLocation() {
   };
 }
 let location = getLocation();
-console.log(location);
 const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
 const body = document.body;
 body.appendChild(h2("loading..."));
-connectServer(serverurl, "rubox", new Stored("rubox-token-" + location.serverLocal, "")).then((server) => {
+async function setup() {
+  let tokenLocation = `${serverurl}-token`;
+  let [server, token] = await ServerConnection.connect(serverurl, localStorage.getItem(tokenLocation) ?? "").catch(async (e) => {
+    console.warn("error connecting to server", e);
+    localStorage.clear();
+    return await ServerConnection.connect(serverurl, "");
+  });
+  localStorage.setItem(tokenLocation, token);
   const home = () => div(
-    h2("home"),
-    p("welcome to the rubox"),
+    h2("welcome to the rubox"),
+    p("This is a simple app to demonstrate the use of the Rubox framework."),
     ...apps.filter((x) => x.path).map((app) => p(
       button(app.path, {
         onclick: () => {
-          route(app.path.split("/"));
+          route(app.path.split("/"), server);
         }
       })
     ))
   );
   const apps = [
-    { init: home, path: "", cache: void 0 },
-    { init: (server2) => chatView(server2), path: "chat", cache: void 0 },
-    { init: (server2) => chessView$1(server2), path: "chess", cache: void 0 },
-    { init: (server2) => chessView(server2), path: "chess2", cache: void 0 }
+    { render: home, path: "" },
+    { render: (server2) => new ChatService(server2).render(), path: "chat" },
+    { render: (server2) => new ChessService(server2).render(), path: "chess" }
   ];
-  route(location.path);
+  route(location.path, server);
   window.addEventListener("popstate", (e) => {
     location = getLocation();
-    route(location.path);
+    route(location.path, server);
   });
-  function route(path) {
+  function route(path, server2) {
     let newpath = "/" + (location.frontendLocal ? "" : appname) + "/" + path.join("/") + (location.serverLocal ? "/local" : "");
     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join("/");
     window.history.pushState({}, "", newpath);
     body.innerHTML = "";
+    body.appendChild(div(
+      {
+        style: {
+          "max-width": "20em",
+          position: "absolute",
+          top: "0",
+          left: "1em",
+          cursor: "pointer"
+        },
+        onclick: () => {
+          route([], server2);
+        }
+      },
+      h2("rubox")
+    ));
     body.style.fontFamily = "monospace";
     body.style.textAlign = "center";
     for (const app of apps) {
       if (app.path === path.join("/")) {
         if (!app.cache) {
-          app.cache = app.init(server);
+          app.cache = div(app.render(server2));
         }
         body.appendChild(app.cache);
       }
     }
   }
-});
+}
+setup();

@@ -10,7 +10,7 @@ import { Store } from "../module_bindings";
 type MsgNotification = ["new message", number]
 
 type ChatCtx = {
-  pushMsg: (msg:string)=>void
+  pushMsg: (target:IdString, msg:string)=>void
 }
 
 type Msg = {
@@ -24,40 +24,39 @@ export const msgApp  = {
   name: "chatbox",
   loadApp: (c:DefaultContext) => {
     return {
-      pushMsg: (msg:string)=>{
+      pushMsg: (target:IdString, msg:string)=>{
         let d:Msg = {
           sender: c.self,
-          receiver: c.other,
+          receiver: target,
           message: msg
         };
-        let t = c.DB.set(false, "messages", [...c.DB.get<Msg[]> (false, "messages") ?? [], d]);
-        if (c.self == c.other) {
+        let t = c.DB.set(target, "messages", [...c.DB.get<Msg[]> (target, "messages") ?? [], d]);
+        if (c.self == target) {
           return null
         }
-        let prev = c.DB.get<Msg[]> (true, "messages");
-        c.DB.set(true, "messages", [...prev ?? [], d])
-        c.notify(["new message", prev ? prev.length : 0])
+        let prev = c.DB.get<Msg[]> (c.self, "messages");
+        c.DB.set(c.self, "messages", [...prev ?? [], d])
+        c.notify(target, ["new message", prev ? prev.length : 0])
       },
     }
   },
   api: {
 
     setname:(ctx, arg)=>{
-      ctx.DB.set(true, "name", arg)
+      ctx.DB.set(ctx.self, "name", arg)
     },
 
-    getname:(ctx,arg)=>{
-      return ctx.DB.get(false, "name") || "anonym"
+    getname:(ctx,target:IdString)=>{
+      return ctx.DB.get(target, "name") || "anonym"
     },
 
-    sendMessage:(ctx,arg:string)=>{
-      ctx.pushMsg(arg)
+    sendMessage:(ctx, arg:{target:IdString, message:string})=>{
+      ctx.pushMsg( arg.target, arg.message)
     },
 
-    getMessages:(ctx,arg)=>{
-      return ctx.DB.get(true, "messages") || []
-    }
-
+    getMessages:(ctx,arg:null)=>{
+      return ctx.DB.get(ctx.self, "messages") || []
+    },
   }
 } as ServerApp<ChatCtx>
 
@@ -89,16 +88,19 @@ export class ChatService {
 
     myname.get().then(n=>{
       myname.subscribeLater(n=>{
-        this.conn.call(this.conn.identity, msgApp.api.setname, n)
+        this.conn.call(msgApp.api.setname, n)
         .then(()=>popup("name updated: ", n))
       })
     })
 
     this.refreshMsgs()
 
+    let nameview = input(myname)
+    
+
     return div(
       h2("chatbox"),
-      p("my name:", input(myname)),
+      p("my name:", nameview, button("update", {onclick: ()=>{myname.set(nameview.value)}})),
 
       p("active users:"),
       this.conn.users().then(us=>us.map(u=>
@@ -128,8 +130,8 @@ export class ChatService {
     await this.sendMessageTo(message, await this.active_partner.get())
   }
 
-  async sendMessageTo(message:string, partner:IdString){
-    await this.conn.call(partner, msgApp.api.sendMessage, message)
+  async sendMessageTo(message:string, target:IdString){
+    await this.conn.call(msgApp.api.sendMessage, {target, message})
     .then(()=>{this.refreshMsgs()})
   }
 
@@ -144,12 +146,12 @@ export class ChatService {
   }
 
   async refreshMsgs(){
-    await this.conn.call(this.conn.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
+    await this.conn.call(msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
   }
 
   getName(id:IdString):Writable<string> {
     if (!this.nameCache.has(id)) {
-      const nm = this.conn.call(id, msgApp.api.getname) as Promise<string>;
+      const nm = this.conn.call(msgApp.api.getname, id) as Promise<string>;
       let res = new Writable<string>(nm
         .catch(e=>{
           return "anonym"
@@ -161,7 +163,7 @@ export class ChatService {
   }
 
   async setName(name:string):Promise<void> {
-    await this.conn.call(this.conn.identity, msgApp.api.setname, name);
+    await this.conn.call(msgApp.api.setname, name);
   }
 
 }

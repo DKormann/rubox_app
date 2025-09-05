@@ -178,19 +178,19 @@ export type Reducer = never
 export class RemoteReducers {
   constructor(private connection: DbConnectionImpl, private setCallReducerFlags: SetReducerFlags) {}
 
-  callLambda(other: Identity, app: bigint, lam: bigint, callId: number, arg: string) {
-    const __args = { other, app, lam, callId, arg };
+  callLambda(appHash: bigint, lam: bigint, callId: number, arg: string) {
+    const __args = { appHash, lam, callId, arg };
     let __writer = new BinaryWriter(1024);
     CallLambda.getTypeScriptAlgebraicType().serialize(__writer, __args);
     let __argsBuffer = __writer.getBuffer();
     this.connection.callReducer("call_lambda", __argsBuffer, this.setCallReducerFlags.callLambdaFlags);
   }
 
-  onCallLambda(callback: (ctx: ReducerEventContext, other: Identity, app: bigint, lam: bigint, callId: number, arg: string) => void) {
+  onCallLambda(callback: (ctx: ReducerEventContext, appHash: bigint, lam: bigint, callId: number, arg: string) => void) {
     this.connection.onReducer("call_lambda", callback);
   }
 
-  removeOnCallLambda(callback: (ctx: ReducerEventContext, other: Identity, app: bigint, lam: bigint, callId: number, arg: string) => void) {
+  removeOnCallLambda(callback: (ctx: ReducerEventContext, appHash: bigint, lam: bigint, callId: number, arg: string) => void) {
     this.connection.offReducer("call_lambda", callback);
   }
 

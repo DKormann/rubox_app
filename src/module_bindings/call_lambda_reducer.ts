@@ -34,8 +34,7 @@ import {
 } from "@clockworklabs/spacetimedb-sdk";
 
 export type CallLambda = {
-  other: Identity,
-  app: bigint,
+  appHash: bigint,
   lam: bigint,
   callId: number,
   arg: string,
@@ -51,8 +50,7 @@ export namespace CallLambda {
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
-      new ProductTypeElement("other", AlgebraicType.createIdentityType()),
-      new ProductTypeElement("app", AlgebraicType.createU256Type()),
+      new ProductTypeElement("appHash", AlgebraicType.createU256Type()),
       new ProductTypeElement("lam", AlgebraicType.createU256Type()),
       new ProductTypeElement("callId", AlgebraicType.createU32Type()),
       new ProductTypeElement("arg", AlgebraicType.createStringType()),

@@ -6,19 +6,16 @@ import { CachedStore, Stored, Writable } from "./store";
 
 export type DefaultContext = {
   DB:{
-    get: <T> (fromMe: boolean, key:string) => T,
-    set: <T> (fromMe: boolean, key:string, value:T) => void,
+    get: <T> (owner:IdString, key:string) => T,
+    set: <T> (owner:IdString, key:string, value:T) => void,
   }
   self: IdString,
-  other: IdString,
-  notify: (payload:Serial) => void,
+  notify: (target:IdString, payload:Serial) => void,
 }
 
 export type Serial = string | number | boolean | null | Serial [] | { [key: string]: Serial } | [Serial, Serial]
-
-export type APIFunction<C, A, R> = (ctx:DefaultContext & C, arg:Serial) => R
+export type APIFunction<C, A, R> = (ctx:DefaultContext & C, arg:A) => R
 export type ClientFunction = (arg:Serial) => void
-
 export type ServerApp<C> = {
   name: string,
   loadApp : (c:DefaultContext) => C
@@ -89,7 +86,7 @@ export class ServerConnection {
           `SELECT * FROM notification WHERE target = '${identity.toHexString()}'`,
           `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`,
         ])
-        conn.reducers.onCallLambda((c, o, a, l, id, arg)=>{
+        conn.reducers.onCallLambda(( c, a, l, id, arg)=>{
           if (c.event.status.tag == "Failed") {
             console.warn("onCallLambda failed", id, c.event.status.value);
             server.returnListeners.get(a)?.get(id)?.reject(c.event.status.value)
@@ -143,10 +140,8 @@ export class AppHandle {
     })
   }
 
-  async call<R, A extends Serial>(target:IdString, fn:APIFunction<any, A, R>, arg:Serial = null): Promise<R>{
-    if (!target.startsWith("id")){
-      throw new Error("target must be an id: " + target)
-    }
+  async call<R, A extends Serial>(fn:APIFunction<any, A, R>, arg:A = null): Promise<R>{
+
     if (!fn){
       throw new Error("fn must be a function: " + fn)
     }
@@ -154,7 +149,7 @@ export class AppHandle {
       let funHash = await hashString(fn.toString())
       let appHash = await this.app
       this.server.returnListeners.get(appHash)?.set(this.callCounter, {resolve,reject})
-      this.server.server.reducers.callLambda( IdentityFromString(target), appHash, funHash, this.callCounter, JSON.stringify(arg))
+      this.server.server.reducers.callLambda( appHash, funHash, this.callCounter, JSON.stringify(arg))
       this.callCounter += 1
     })
   }
