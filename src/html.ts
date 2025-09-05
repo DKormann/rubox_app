@@ -49,6 +49,8 @@ export const html = (tag:string, ...cs:HTMLArg[]):HTMLElement=>{
         el.innerHTML = ""
         el.appendChild(span(value, {class:"writable-value"}))
         console.log("new el:", el)
+
+        console.log(el.parentElement)
       })
       children.push(el)
     }

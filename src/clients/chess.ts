@@ -465,30 +465,35 @@ export class ChessService {
 
     let showChat = new Stored("show_chat_chess", true);
 
-    let opponent = this.match.map(m=>getother(m, this.conn.identity));
+    let opponent = this.match.map(m=>m ?getother(m, this.conn.identity):null);
+
+    let msgsView = div()
+
+    opponent.subscribe(o=>{
+      msgsView.innerHTML = ""
+      if (o){
+        this.chatService.refreshMsgs()
+        .then(()=>{
+          this.chatService.filterMsgs(o).subscribe(m=>{
+            msgsView.innerHTML = ""
+            msgsView.appendChild(div(m.map(m=>p(this.chatService.getName(m.sender), " : ", m.message))))
+          })
+        })
+      }
+    })
 
     let chatview = showChat.map(h=>
       div(
-        h
+        h && opponent
         ? [
             button("x", {onclick: ()=>showChat.set(false)}),
             h2("chat"),
-
-            opponent.map(async o=>{
-              await this.chatService.refreshMsgs()
-              return this.chatService.filterMsgs(o).map(m=>{
-                console.log("messages", m)
-                console.log(m[m.length-1].message)
-                let res = div(m.map(m=>p(this.chatService.getName(m.sender), " : ", m.message)))
-                console.log("res", res)
-                return res
-              })
-            }),
+            msgsView,
 
             input({onkeydown:async (e)=>{
               if (e.key === "Enter"){
                 let inp = e.target as HTMLInputElement
-                await this.chatService.sendMessage(inp.value)
+                await this.chatService.sendMessageTo(inp.value, await opponent.get())
                 inp.value = ""
               }
             }}),
@@ -518,8 +523,6 @@ export class ChessService {
 
       this.match.map(m=>{
 
-        console.log(m);
-
         if (m) {
 
           let host = m.host;
@@ -544,10 +547,7 @@ export class ChessService {
                 }
               })
             }}) : matchMaker,
-
             chatview,
-
-            
           ]
         }
         return matchMaker

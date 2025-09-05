@@ -125,7 +125,11 @@ export class ChatService {
   }
 
   async sendMessage(message:string){
-    await this.conn.call(await this.active_partner.get(), msgApp.api.sendMessage, message)
+    await this.sendMessageTo(message, await this.active_partner.get())
+  }
+
+  async sendMessageTo(message:string, partner:IdString){
+    await this.conn.call(partner, msgApp.api.sendMessage, message)
     .then(()=>{this.refreshMsgs()})
   }
 
