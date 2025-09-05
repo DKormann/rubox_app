@@ -5755,9 +5755,12 @@ const _ChatService = class {
       });
     });
     this.refreshMsgs();
+    let nameview = input(myname);
     return div(
       h2("chatbox"),
-      p("my name:", input(myname)),
+      p("my name:", nameview, button("update", { onclick: () => {
+        myname.set(nameview.value);
+      } })),
       p("active users:"),
       this.conn.users().then((us) => us.map(
         (u) => p(this.getName(u), " ", button("message", { onclick: () => {
@@ -6035,8 +6038,8 @@ let chessApp = {
       }
       return c.DB.get(host, "match_data");
     },
-    resignMatch: (c, host) => {
-      let match = c.DB.get(host, "match_data");
+    resignMatch: (c, arg) => {
+      let match = c.DB.get(c.self, "match_data");
       if (match.black != c.self && match.white != c.self) {
         return ["not your match", null];
       }
@@ -6045,7 +6048,7 @@ let chessApp = {
         ...match,
         winner: other
       };
-      c.DB.set(host, "match_data", newmatch);
+      c.DB.set(c.self, "match_data", newmatch);
       c.notify(other, {
         type: "game over",
         data: newmatch
@@ -6263,7 +6266,7 @@ class ChessService {
             p("white:", this.chatService.getName(m.white)),
             p("black:", this.chatService.getName(m.black)),
             p("turn:", m.turn),
-            p("winner:", m.winner),
+            p("winner:", m.winner == null || m.winner == "draw" ? m.winner : this.chatService.getName(m.winner)),
             m.winner == null ? button("resign", { onclick: () => {
               this.conn.call(chessApp.api.resignMatch, null).then(([err, newmatch]) => {
                 if (err) {
