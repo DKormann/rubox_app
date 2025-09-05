@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use crate::lang::ast::*;
-use crate::lang::readback::read_back;
+use crate::lang::readback::{read_back, read_back_expr};
 use crate::Store;
 
 fn v(val: Value) -> VRef {
@@ -203,10 +203,13 @@ pub fn get_std()->EnvRef{
 }
 
 
-pub fn eval_native(expr: &Expr, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<(VRef, Vec<String>), String>{
+pub fn eval_native(expr: &Expr, native_fns: impl Fn(&str, Vec<Value>)->Result<Value, String> + Clone)->Result<(VRef, Vec<String>), (String, Vec<String>)>{
   let mut logs = vec![];
-  let res = do_eval(expr, &env_extend(None), native_fns, &mut logs)?;
-  Ok((res, logs))
+
+  match do_eval(expr, &env_extend(None), native_fns, &mut logs) {
+    Ok(res)=>Ok((res, logs)),
+    Err(e)=>Err((e, logs))
+  }
 }
 
 pub fn do_eval(
@@ -391,7 +394,6 @@ pub fn do_eval(
       }
 
       Expr::Let(bindr, val_expr, body) => {
-        // Make a new environment frame we can mutate in place
         let final_env = Rc::new(EnvData {
             bindings: RefCell::new(HashMap::new()),
             parent: Some(env.clone()),
@@ -426,7 +428,7 @@ pub fn do_eval(
             },
             Err(e)=>{
 
-              return Err(format!("in {:?}:\n{}", bindr.as_ref(), e));
+              return Err(format!("in {:?}:\n{}", read_back_expr(bindr.as_ref()), e));
             }
           },
         };
@@ -530,6 +532,13 @@ pub fn do_eval(
             }}
           }
 
+          Value::String(s)=>{
+            match prop.as_str() {
+              "length" => Ok(v(Value::Int(s.len() as i32))),
+              _=>return Err(format!("property {} not found on string", prop))
+            }
+          }
+
           Value::Builtin(builtin)=>{
             match builtin {
               Builtin::Object => match prop.as_str() {
@@ -563,6 +572,8 @@ pub fn do_eval(
               _=>return Err(format!("property {} not found on builtin", prop))
             }
           },
+
+
           _=>return Err(format!("attempted to access a non-object value : {:?} . {:?}", primary_val.as_ref(), prop))
         }
       },

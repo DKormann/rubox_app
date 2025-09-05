@@ -2,21 +2,14 @@
 export {}
 
 
-
-[].reduce((a, b) => a + b, "")
-import { chatView } from "./clients/chatbox"
-import { chessView } from "./clients/chess"
-
-import { button, div, h2, p } from "./html"
-import { Stored } from "./store"
-import { connectServer, ServerConnection } from "./userspace"
-import {chessView as chessView2} from "./clients/chess2"
+import { ChatService, msgApp } from "./clients/chatbox"
+import { button, div, h2, input, p, popup } from "./html"
+import { AppHandle, ServerConnection, WSSURL } from "./userspace"
+import {ChessService } from "./clients/chess"
+import { Writable } from "./store"
 
 
 export type PageComponent = (server:ServerConnection) => HTMLElement
-
-
-
 
 
 
@@ -49,86 +42,116 @@ function getLocation():Location{
 let location  = getLocation()
 
 
-
-
-console.log(location)
-
-// e=>({
-//   pushMsg:t=>{
-//     let r={sender:e.self,receiver:e.other,message:t};
-//     e.DB.set(!1,"messages",[...e.DB.get(!1,"messages")??[],r]),
-//     e.DB.set(!0,"messages",[...e.DB.get(!0,"messages")??[],r])
-//   }
-// })
-
-
-
-
-const serverurl = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
-
-console.log("connecting to server at", serverurl)
+const serverurl : WSSURL = location.serverLocal ? "ws://localhost:3000" : "wss://maincloud.spacetimedb.com";
 const body = document.body;
-
 body.appendChild(h2("loading..."))
 
 
 
-connectServer(serverurl, "rubox", new Stored<string>("rubox-token-"+location.serverLocal, "")).then((server:ServerConnection)=>{
-  
 
+async function setup(){
+
+  let tokenLocation = `${serverurl}-token`
+
+  let [server, token] = await ServerConnection.connect(serverurl, localStorage.getItem(tokenLocation) ?? '')
+  .catch(async(e)=>{
+    console.warn("error connecting to server", e)
+    localStorage.clear()
+    return await ServerConnection.connect(serverurl, "")
+  }) as [ServerConnection, string];
+  localStorage.setItem(tokenLocation, token)
+
+
+  
   const home = () => div(
-    h2("home"),
-    p("welcome to the rubox"),
+    h2("welcome to the rubox"),
+    p("This is a simple app to demonstrate the use of the Rubox framework."),
+  
     ...apps.filter(x=>x.path).map(app => p(
       button(app.path, {
         onclick: () => {
-          route(app.path.split('/'))
+          route(app.path.split('/'), server)
         }
       })
     ))
   )
 
-
   const apps : {
-    init: (server:ServerConnection) => HTMLElement,
+    render: (server:ServerConnection) => Promise<HTMLElement> | HTMLElement,
     path: string,
     cache? : HTMLElement
   }[] = [
-    {init: home, path: "", cache: undefined},
-    {init: (server)=>chatView(server), path: "chat", cache: undefined},
-    // {init: (server)=>chessView(server), path: "chess", cache: undefined},
-    {init: (server)=>chessView2(server), path: "chess", cache: undefined},
+    {render: home, path: ""},
+    {render: (server) => new ChatService(server).render(), path: "chat"},
+    {render: (server) => new ChessService(server).render(), path: "chess"},
+    {
+      render: (server) =>{
+        let x1 = new Writable("x1");
+        let x2 = new Writable("x2");
+        let x3 = new Writable("x3");
+        return div(
+          h2("test"),
+          p("x1:", input(x1)),
+          p("x2:", input(x2)),
+          p("x3:", input(x3)),
 
+          p(),
+
+          x1.map(x=>
+            x2.map(x2=>
+              x3.map(x3=>
+                p("x1:", x, " x2:", x2, " x3:", x3)
+              )
+            )
+          )
+
+        )
+      },
+      path: "test",
+    }
   ]
 
-  route(location.path)
-
+  route(location.path,server)
 
   window.addEventListener("popstate", (e) => {
     location = getLocation() 
-    route(location.path)
+    route(location.path, server)
   })
-
-
-  function route(path: string[]){
-
+  
+  function route(path: string[], server:ServerConnection){
+  
     let  newpath =   "/" + (location.frontendLocal? "" : appname) + "/" + path.join('/') + (location.serverLocal? "/local" : "")
     newpath = window.location.origin + "/" + newpath.split("/").filter(Boolean).join('/')
     
     window.history.pushState({}, "", newpath)
     body.innerHTML = ''
+    body.appendChild(div(
+      {style:{
+        "max-width": "20em",
+        position: "absolute",
+        top: "0",
+        left: "1em",
+        cursor: "pointer",
+      },
+        onclick: () => {
+          route([], server)
+        }},
+      h2("rubox"),
+  
+    ))
     body.style.fontFamily = "monospace"
     body.style.textAlign = "center"
     for (const app of apps){
       if (app.path === path.join('/')){
         if (!app.cache){
-          app.cache = app.init(server)
+          app.cache = div(app.render(server))
         }
         body.appendChild(app.cache)
       }
     }
   }
+}
+
+setup()
 
 
-
-})

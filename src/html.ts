@@ -1,12 +1,12 @@
 import { Writable } from "./store"
 
-export type htmlKey = 'innerText'|'onclick'|'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style'
+export type htmlKey = 'innerText'|'onclick' | 'oninput' | 'onkeydown' |'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style' | 'placeholder'
 
 export const htmlElement = (tag:string, text:string, cls:string = "", args?:Partial<Record<htmlKey, any>>):HTMLElement =>{
 
   const _element = document.createElement(tag)
   _element.innerText = text
-  if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
+  // if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
   if (args) Object.entries(args).forEach(([key, value])=>{
     if (key === 'parent'){
       (value as HTMLElement).appendChild(_element)
@@ -23,8 +23,10 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
       Object.entries(value as Record<string, string>).forEach(([key, value])=>{
         _element.style.setProperty(key, value)
       })
+    }else if (key === 'class'){
+      _element.classList.add(...(value as string).split('.').filter(x=>x))
     }else{
-      _element[(key as 'innerText' | 'onclick' | 'id' | 'contentEditable')] = value
+      _element[(key as 'innerText' | 'onclick' | 'oninput' | 'id' | 'contentEditable')] = value
     }
   })
   return _element
@@ -42,10 +44,13 @@ export const html = (tag:string, ...cs:HTMLArg[]):HTMLElement=>{
     if (typeof arg === 'string') children.push(htmlElement("span", arg))
     else if (typeof arg === 'number') children.push(htmlElement("span", arg.toString()))
     else if (arg instanceof Writable){
-      const el = span()
+      const el = span({class:"writable-container"})
       arg.subscribe((value)=>{
         el.innerHTML = ""
-        el.appendChild(span(value))
+        el.appendChild(span(value, {class:"writable-value"}))
+        console.log("new el:", el)
+
+        console.log(el.parentElement)
       })
       children.push(el)
     }
@@ -100,15 +105,18 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
   const el = html("input", ...cs) as HTMLInputElement
 
   if (writable){
-    el.value = writable.get()
-    writable.subscribeLater((value)=>{
-      if (el.value !== value.toString()){
-        el.value = value.toString()
+    writable.subscribe(v=>{
+      if (el.value!=v.toString()){
+        el.value = v.toString()
       }
-    })
-    el.oninput = (e)=>{
-      writable.set((e.target as HTMLInputElement).value)
+    });
+
+    el.onkeydown = (e)=>{
+      if (e.key == "Enter"){
+        writable.set(el.value)
+      }
     }
+
   }else{
     el.value = content
   }
@@ -117,7 +125,9 @@ export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
 
 
-export const popup = (dialogfield: HTMLElement)=>{
+export const popup = (...cs:HTMLArg[])=>{
+
+  const dialogfield = div(...cs)
 
   // const popupbackground = htmlElement("div", "", "popup-background");
   const popupbackground = div(

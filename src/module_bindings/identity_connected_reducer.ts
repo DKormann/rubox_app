@@ -33,38 +33,27 @@ import {
   type SubscriptionEventContextInterface,
 } from "@clockworklabs/spacetimedb-sdk";
 
-export type CallLambda = {
-  other: Identity,
-  app: bigint,
-  lam: bigint,
-  callId: number,
-  arg: string,
-};
+export type IdentityConnected = {};
 
 /**
  * A namespace for generated helper functions.
  */
-export namespace CallLambda {
+export namespace IdentityConnected {
   /**
   * A function which returns this type represented as an AlgebraicType.
   * This function is derived from the AlgebraicType used to generate this type.
   */
   export function getTypeScriptAlgebraicType(): AlgebraicType {
     return AlgebraicType.createProductType([
-      new ProductTypeElement("other", AlgebraicType.createIdentityType()),
-      new ProductTypeElement("app", AlgebraicType.createU256Type()),
-      new ProductTypeElement("lam", AlgebraicType.createU256Type()),
-      new ProductTypeElement("callId", AlgebraicType.createU32Type()),
-      new ProductTypeElement("arg", AlgebraicType.createStringType()),
     ]);
   }
 
-  export function serialize(writer: BinaryWriter, value: CallLambda): void {
-    CallLambda.getTypeScriptAlgebraicType().serialize(writer, value);
+  export function serialize(writer: BinaryWriter, value: IdentityConnected): void {
+    IdentityConnected.getTypeScriptAlgebraicType().serialize(writer, value);
   }
 
-  export function deserialize(reader: BinaryReader): CallLambda {
-    return CallLambda.getTypeScriptAlgebraicType().deserialize(reader);
+  export function deserialize(reader: BinaryReader): IdentityConnected {
+    return IdentityConnected.getTypeScriptAlgebraicType().deserialize(reader);
   }
 
 }

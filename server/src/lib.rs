@@ -2,7 +2,7 @@
 
 #![allow(unused)]
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, error::Error, rc::Rc};
 
 use spacetimedb::{reducer, sats::u256, spacetimedb_lib::db, table, Identity, RangedIndex, ReducerContext, SpacetimeType, Table};
 use sha2::{Sha256, Digest};
@@ -16,33 +16,9 @@ mod test_parse_expr;
 mod test_eval_expr;
 
 mod lang;
-
 use lang::parser::*;
-
 use crate::lang::{ast::{mk_call, mk_object, mk_string, EnvData, Expr, ObjElem, Value}, readback::{self, read_back}, runtime::{do_eval, env_extend, eval, eval_native}};
 
-#[table(name = lambda, public)]
-pub struct Lambda{
-  #[primary_key]
-  id: u256,
-  code: String,
-}
-
-
-#[table(name = app, public)]
-pub struct App{
-  #[primary_key]
-  
-  id:u256,
-  setup:String,
-}
-
-
-#[derive(SpacetimeType)]
-pub struct HostKey{
-  host: Identity,
-  app: u256,
-}
 
 #[table(name = host, public, index(name = hostkey, btree(columns = [host, app])))]
 pub struct Host{
@@ -51,14 +27,56 @@ pub struct Host{
 }
 
 
-#[derive(Clone)]
-#[table(name = store, public)]
-pub struct Store{
+#[table(name = app)]
+pub struct App{
   #[primary_key]
+  id:u256,
+  setup:String,
+}
+
+#[table(name = lambda)]
+pub struct Lambda{
+  #[primary_key]
+  id: u256,
+  code: String,
+}
+
+
+#[derive(Clone)]
+#[table(name = store, index(name = storekey, btree(columns = [key, owner])))]
+pub struct Store{
   key:u256,
   owner:Identity,
   content:String,
 }
+
+#[derive(Clone, SpacetimeType)]
+pub enum LamResult{
+  Ok(String),
+  Err(String),
+}
+
+#[derive(Clone)]
+#[table(name = returns, public)]
+pub struct Return{
+  #[primary_key]
+  owner:Identity,
+  app:u256,
+  id: u32,
+  logs:Vec<String>,
+  result:LamResult,
+}
+
+#[derive(Clone)]
+#[table(name = notification, public)]
+pub struct Notification{
+  #[primary_key]
+  target:Identity,
+  app:u256,
+  sender:Identity,
+  arg:String,
+}
+
 
 
 #[derive(SpacetimeType)]
@@ -66,6 +84,7 @@ pub struct AppData{
   setup:String,
   functions:Vec<String>,
 }
+
 
 
 #[reducer]
@@ -95,22 +114,11 @@ pub fn hash_app(setup:&str, functions:Vec<u256>)->u256{
 }
 
 
-pub fn hash_key(owner:Identity, app:u256, key:&str)->u256{
+pub fn hash_key(app:u256, key:&str)->u256{
   let mut hash = Sha256::new();
-  hash.update(owner.to_be_byte_array());
   hash.update(app.to_be_bytes());
   hash.update(key);
   return u256::from_be_bytes(*hash.finalize().as_ref())
-}
-
-
-#[reducer]
-pub fn sethost(ctx: &ReducerContext, app:u256, value:bool){
-  if value {
-    ctx.db.host().insert(Host{host:ctx.sender, app});
-  } else {
-    ctx.db.host().delete(Host{host:ctx.sender, app});
-  }
 }
 
 
@@ -130,10 +138,29 @@ fn identity_string(id:Identity)->String{
   format!("id{}", id.to_hex())
 }
 
+pub fn is_hosting(ctx: &ReducerContext, app:u256, other:Identity)->bool{
+  ctx.db.host().hostkey().filter((other, app)).next().is_some()
+}
+
+#[spacetimedb::reducer]
+pub fn set_host(ctx: &ReducerContext, app:u256, value:bool){
+  if value{
+    ctx.db.host().insert(Host{host:ctx.sender, app});
+  }else{
+    ctx.db.host().delete(Host{host:ctx.sender, app});
+  }
+}
 
 
 #[spacetimedb::reducer]
-pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg:String)->Result<(), String>{
+pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, call_id: u32, arg:String)->Result<(), String>{
+
+  if !is_hosting(ctx, app, other){
+    return Err("app not installed on other".to_string());
+  }
+  if !is_hosting(ctx, app, ctx.sender){
+    return Err("app not installed on self".to_string());
+  }
 
   let dbctxex = mk_object(vec![
     ("DB".into(), mk_object(vec![
@@ -142,12 +169,10 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
     ])),
     ("self".into(), (Value::String(identity_string(ctx.sender)).into())),
     ("other".into(), (Value::String(identity_string(other)).into())),
+    ("notify".into(), (Value::NativeFn("Notify".into())).into()),
     ]);
 
-  let by_host_and_app: RangedIndex<_, (Identity, u256), _> = ctx.db.host().hostkey();
-  by_host_and_app.filter((other, app)).next().ok_or("app not installed on other")?;
-  by_host_and_app.filter((ctx.sender, app)).next().ok_or("app not installed on self")?;
-
+  let by_key_and_owner: RangedIndex<_, (u256, Identity), _> = ctx.db.store().storekey();
   let lam = ctx.db.lambda().id().find(lam).ok_or("lambda not found")?;
   let app = ctx.db.app().id().find(app).ok_or("app not found")?;
   let setup = app.setup;
@@ -172,28 +197,39 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
       ("DBSet", [Value::Boolean(from_me), Value::String(key), content]) => {
         let content = read_back(content);
         let owner = if *from_me {ctx.sender} else {other};
-        let key = hash_key(owner, app.id, &key);
+        let key = hash_key(app.id, &key);
         log::info!("setting {}, {}, {}", owner, app.id, &key);
-        let insres = ctx.db.store().try_insert(Store{key, owner:ctx.sender, content:content.clone()});
-        if insres.is_err(){
-          ctx.db.store().key().update(Store{key, owner, content:content.clone()});
-        };
+        by_key_and_owner.delete((key, owner));
+        ctx.db.store().insert(Store{key, owner, content:content.clone()});        
         Ok(Value::Null)
       },
       ("DBGet", [Value::Boolean(from_me), Value::String(key)]) => {
         let owner = if *from_me {ctx.sender} else {other};
-        let key = hash_key(owner, app.id, &key);
-
-        let val: Value = match ctx.db.store().key().find(key){
-          Some(store) => {
-            let ast = parse(&store.content).map_err(|e| e.to_string())?;
-            let (res,logs) = eval(&ast)?;
+        let key = hash_key(app.id, &key);
+        let val = match by_key_and_owner.filter((key,owner)).next(){
+          Some(st) => {
+            let (res,logs) = eval(&parse(&st.content).map_err(|e| e.to_string())?)?;
             (*res).clone()
           },
           None => Value::Null,
         };
-
         Ok(val)
+      },
+
+      ("Notify", [v]) => {
+
+        let content = read_back(v);
+        let note = Notification{
+          target:other,
+          app:app.id,
+          sender:ctx.sender,
+          arg:content
+        };
+
+        if let Err(_) = ctx.db.notification().try_insert(note.clone()){
+          ctx.db.notification().target().update(note);
+        };
+        Ok(Value::Null)
       },
 
       (_, _) => return Err("function not found".to_string())
@@ -201,29 +237,43 @@ pub fn call_lambda(ctx: &ReducerContext, other:Identity, app:u256, lam:u256, arg
   };
 
 
-  let (res, logs) = eval_native(&finast, native_fns)?;
+  let (result, logs) = match eval_native(&finast, native_fns){
+    Ok((res, logs)) => {
+      let read = if (*res.clone() == Value::Undefined) {
+        Value::Null
+      }else{
+        (*res).clone()
+      };
+      (LamResult::Ok(read_back(&read)), logs)
+    },
+    Err((e, logs)) => (LamResult::Err(format!("error in {}: {}", lam.code, e)), logs),
+  };
 
 
   let key = hash_fun_args(ctx.sender, other, app.id, lam.id, &arg);
 
-  let res = Value::Array(vec![
-    res.into(),
-    Value::Array(logs.iter().map(|l| Rc::new(Value::String(l.clone()))).collect()).into()
-  ]);
-
-  let item  = Store{
-    key:key,
+  let ret  = Return{
     owner:ctx.sender,
-    content:read_back(&res)
+    app:app.id,
+    id: call_id,
+    logs,
+    result,
   };
 
-  match ctx.db.store().try_insert(item.clone()){
-    Ok(_) => Ok(()),
-    Err(e) => {
-      ctx.db.store().key().update(item);
-      Ok(())
-    }
-  }
+  ctx.db.returns().owner().update(ret);
+  Ok(())
+
+}
 
 
+
+#[reducer(client_connected)]
+pub fn identity_connected(_ctx: &ReducerContext) {
+  let dummy = Return{ owner:_ctx.sender, app:u256::from(0u8), id: 0,
+    logs:vec![],
+    result:LamResult::Ok("".to_string()),
+  };
+  if let Err(_) = _ctx.db.returns().try_insert(dummy.clone()){
+    _ctx.db.returns().owner().update(dummy);
+  };
 }

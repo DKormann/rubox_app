@@ -59,28 +59,6 @@ export class StoreTableHandle {
   iter(): Iterable<Store> {
     return this.tableCache.iter();
   }
-  /**
-   * Access to the `key` unique index on the table `store`,
-   * which allows point queries on the field of the same name
-   * via the [`StoreKeyUnique.find`] method.
-   *
-   * Users are encouraged not to explicitly reference this type,
-   * but to directly chain method calls,
-   * like `ctx.db.store.key().find(...)`.
-   *
-   * Get a handle on the `key` unique index on the table `store`.
-   */
-  key = {
-    // Find the subscribed row whose `key` column value is equal to `col_val`,
-    // if such a row is present in the client cache.
-    find: (col_val: bigint): Store | undefined => {
-      for (let row of this.tableCache.iter()) {
-        if (deepEqual(row.key, col_val)) {
-          return row;
-        }
-      }
-    },
-  };
 
   onInsert = (cb: (ctx: EventContext, row: Store) => void) => {
     return this.tableCache.onInsert(cb);
@@ -97,12 +75,4 @@ export class StoreTableHandle {
   removeOnDelete = (cb: (ctx: EventContext, row: Store) => void) => {
     return this.tableCache.removeOnDelete(cb);
   }
-
-  // Updates are only defined for tables with primary keys.
-  onUpdate = (cb: (ctx: EventContext, oldRow: Store, newRow: Store) => void) => {
-    return this.tableCache.onUpdate(cb);
-  }
-
-  removeOnUpdate = (cb: (ctx: EventContext, onRow: Store, newRow: Store) => void) => {
-    return this.tableCache.removeOnUpdate(cb);
-  }}
+}

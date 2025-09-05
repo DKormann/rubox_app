@@ -1,9 +1,13 @@
-import { Identity } from "@clockworklabs/spacetimedb-sdk";
+
 import { button, div, h2, input, p, popup } from "../html";
 import { PageComponent } from "../main";
-import { ServerApp, DefaultContext, IdString, ServerConnection } from "../userspace";
-import { Stored, Writable } from "../store";
+import { ServerApp, DefaultContext, IdString, ServerConnection, Serial, AppHandle, WSSURL } from "../userspace";
+import {  Stored, Writable } from "../store";
+import { Store } from "../module_bindings";
 
+
+
+type MsgNotification = ["new message", number]
 
 type ChatCtx = {
   pushMsg: (msg:string)=>void
@@ -15,10 +19,11 @@ type Msg = {
   message:string
 }
 
-export const msgApp : ServerApp<ChatCtx> = {
+
+export const msgApp  = {
+  name: "chatbox",
   loadApp: (c:DefaultContext) => {
     return {
-
       pushMsg: (msg:string)=>{
         let d:Msg = {
           sender: c.self,
@@ -26,9 +31,13 @@ export const msgApp : ServerApp<ChatCtx> = {
           message: msg
         };
         let t = c.DB.set(false, "messages", [...c.DB.get<Msg[]> (false, "messages") ?? [], d]);
-        c.DB.set(true, "messages", [...c.DB.get<Msg[]> (true, "messages") ?? [], d])
-      }
-
+        if (c.self == c.other) {
+          return null
+        }
+        let prev = c.DB.get<Msg[]> (true, "messages");
+        c.DB.set(true, "messages", [...prev ?? [], d])
+        c.notify(["new message", prev ? prev.length : 0])
+      },
     }
   },
   api: {
@@ -37,8 +46,8 @@ export const msgApp : ServerApp<ChatCtx> = {
       ctx.DB.set(true, "name", arg)
     },
 
-    getname:(ctx,arge)=>{
-      return ctx.DB.get(false, "name")
+    getname:(ctx,arg)=>{
+      return ctx.DB.get(false, "name") || "anonym"
     },
 
     sendMessage:(ctx,arg:string)=>{
@@ -46,108 +55,116 @@ export const msgApp : ServerApp<ChatCtx> = {
     },
 
     getMessages:(ctx,arg)=>{
-      return ctx.DB.get(true, "messages")
+      return ctx.DB.get(true, "messages") || []
     }
 
   }
-}
+} as ServerApp<ChatCtx>
 
 
 
-console.log("FUN",msgApp.api.getMessages.toString())
+export class ChatService {
+  nameCache = new Map<IdString, Writable<string>>()
+  msgs = new Writable([] as Msg[])
+  active_partner: Writable<IdString>
+  conn: AppHandle
+
+  static instances: ChatService[] = []
 
 
-export const chatView : PageComponent = (conn:ServerConnection) => {
+  constructor(server:ServerConnection){    
 
-  let nametable = new Map<IdString, Writable<string>>()
+    let instance = ChatService.instances.find(i=>i.conn.server == server)
+    if (instance) return instance;
 
-  let adis = p()
+    console.log("creating chat service")
 
-  let el = div()
-  
-  
-  conn.handle(msgApp).then(async ({call, users, subscribe})=>{
-    console.log("handle", msgApp)
-    async function getName(id:IdString){
-      let cached = nametable.get(id)
-      if (cached) return cached
-      let writable = new Writable<string>("")
+    this.conn = new AppHandle(server, msgApp, (note:MsgNotification)=>this.refreshMsgs())
+    this.active_partner = new Stored<IdString>( `chat_partner_${this.conn.app}`, this.conn.identity)
+  }
 
-      call(id, msgApp.api.getname, id).then(name=>writable.set(name))
-      nametable.set(id, writable)
-      return writable
-    }
+  render(){
 
+    let myname = this.getName(this.conn.identity)
 
-    let msgs = new Writable<Msg[]>([])
-    let msgDisplay = new Writable<HTMLElement>(div());
-    let other = new Stored<IdString>("other", conn.identity)
-
-
-    function displayMsgs(){
-      msgDisplay.set(div(
-
-        msgs.get().filter(msg=>(msg.receiver == other.get() && msg.sender == conn.identity) || ( msg.sender == other.get() && msg.receiver == conn.identity))
-        .map(msg=>p(getName(msg.sender), " : ",msg.message)),
-        {style:{"max-width": "20em", "margin":"auto"}}
-      ))
-    }
-
-
-    call(conn.identity, msgApp.api.getMessages).then(m=>msgs.set(m??[]))
-    msgs.subscribe(e=>displayMsgs())
-    other.subscribeLater(no=>displayMsgs())
-    subscribe("messages", (c:Msg[])=>{
-      msgs.set(c ?? [])}
-    )
-
-
-    let myname = input();
-    await getName(conn.identity).then(name=>name.subscribe(n=>myname.value = n))
-
-    let msginput = input()
-    let send = button("send")
-    send.onclick = async () => {
-      await call(other.get(), msgApp.api.sendMessage, msginput.value)
-      msginput.value = ""
-    }
-
-    let othername = new Writable<string>("")
-    other.subscribe(id=>{
-      getName(id).then(name=>name.subscribe(n=>othername.set(n)))
+    myname.get().then(n=>{
+      myname.subscribeLater(n=>{
+        this.conn.call(this.conn.identity, msgApp.api.setname, n)
+        .then(()=>popup("name updated: ", n))
+      })
     })
-  
-    el.appendChild(div(
-      h2("chat"),
-      adis,
 
-      p("my name:",myname, button("update", {
-        onclick: () => {
-          call(conn.identity, msgApp.api.setname, myname.value).then(()=>{
-            getName(conn.identity).then(name=>name.set(myname.value))
-          })
+    this.refreshMsgs()
+
+    return div(
+      h2("chatbox"),
+      p("my name:", input(myname)),
+
+      p("active users:"),
+      this.conn.users().then(us=>us.map(u=>
+        p(this.getName(u), " ", button("message", {onclick: ()=>{this.active_partner.set(u)}}))
+      )),
+
+      p("chatting with:",this.active_partner.map(p=> this.getName(p))),
+      p("messages:"),
+
+
+      this.active_partner.map(partner=>this.filterMsgs(partner).map(m=>m.map(m=>p(this.getName(m.sender), " : ", m.message)))),
+
+      input({
+        placeholder: "enter message",
+        onkeydown:(e)=>{
+          if (e.key === "Enter"){
+            let inp = e.target as HTMLInputElement
+            this.sendMessage(inp.value)
+            inp.value = ""
+          }
         }
-      })),
+      }),
+    )
+  }
 
-      button("chat with: ", othername, {onclick: () => {
-        let el = popup(div(
-          h2("chat with"),
-          users().then(users=>users.map(user=>p(
-            getName(user),
-            {onclick:()=>{
-              other.set(user)
-              el.remove()
-            }}
-          )))
-        ))
-      }}),
+  async sendMessage(message:string){
+    await this.sendMessageTo(message, await this.active_partner.get())
+  }
 
-      msgDisplay,
+  async sendMessageTo(message:string, partner:IdString){
+    await this.conn.call(partner, msgApp.api.sendMessage, message)
+    .then(()=>{this.refreshMsgs()})
+  }
 
-      p("send message:",msginput, send),
+  filterMsgs(partner:IdString){
 
-    ))
-  })
+    return this.msgs.map(m=>m.filter(m=>(m.receiver == partner && m.sender == this.conn.identity) || (m.sender == partner && m.receiver == this.conn.identity)))
+    .map(m=>{
+      console.log("filtering messages for", partner)
+      console.log("messages", m)
+      return m
+    })
+  }
 
-  return el
+  async refreshMsgs(){
+    await this.conn.call(this.conn.identity, msgApp.api.getMessages).then(m=>(m as Msg[])).then(m=>this.msgs.set(m))
+  }
+
+  getName(id:IdString):Writable<string> {
+    if (!this.nameCache.has(id)) {
+      const nm = this.conn.call(id, msgApp.api.getname) as Promise<string>;
+      let res = new Writable<string>(nm
+        .catch(e=>{
+          return "anonym"
+        })
+      )
+      this.nameCache.set(id, res)
+    }
+    return this.nameCache.get(id)!
+  }
+
+  async setName(name:string):Promise<void> {
+    await this.conn.call(this.conn.identity, msgApp.api.setname, name);
+  }
+
 }
+
+
+

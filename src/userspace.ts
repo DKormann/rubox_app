@@ -1,234 +1,164 @@
 import { Identity } from "@clockworklabs/spacetimedb-sdk";
-import { App, AppData, DbConnection, Host, Lambda } from "./module_bindings";
-import { hashApp, hashFunArgs, hashStoreKey, hashString } from "./lambox";
-import { Writable } from "./store";
-
-
-
-
-type ServerFunction = ( arg:string) => string;
-
-
-export type DBRow<T extends Serial> = {
-  get: () => Promise<T>,
-  set: (value: T|undefined) => Promise<void>,
-  update: (func: (value: T) => T|undefined) => Promise<void>,
-  delete: () => Promise<void>
-}
-
-export type DBTable <T extends Serial> = DBRow<T> & {
-  other: DBRow<T>,
-}
+import { App, AppData, DbConnection, Lambda, Return, Store, Notification } from "./module_bindings";
+import { hashApp, HashedApp, hashFunArgs, hashStoreKey, hashString } from "./hashing";
+import { CachedStore, Stored, Writable } from "./store";
 
 
 export type DefaultContext = {
+  DB:{
+    get: <T> (fromMe: boolean, key:string) => T,
+    set: <T> (fromMe: boolean, key:string, value:T) => void,
+  }
   self: IdString,
   other: IdString,
-
-  DB: {
-    get: <T> (from_me:boolean, key:string) => T,
-    set: <T> (from_me:boolean, key:string, value:T) => void,
-  }
+  notify: (payload:Serial) => void,
 }
 
 export type Serial = string | number | boolean | null | Serial [] | { [key: string]: Serial } | [Serial, Serial]
 
-
-export type APIFunction<C> = (ctx:DefaultContext & C, arg:Serial) => any
-
-export type AppHandle<C> = {
-  call:(target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any>,
-  users:() => Promise<IdString[]>,
-  subscribe:(keyname:string, callback:(value:any)=>void) => void
-}
-
-export type ServerConnection = {
-  identity:IdString,
-  handle:<C>(box:ServerApp<C>) => Promise<AppHandle<C>>,
-}
+export type APIFunction<C, A, R> = (ctx:DefaultContext & C, arg:Serial) => R
+export type ClientFunction = (arg:Serial) => void
 
 export type ServerApp<C> = {
+  name: string,
   loadApp : (c:DefaultContext) => C
-  api: { [key: string]: APIFunction <C> }
+  api: { [key: string]: APIFunction <C, Serial, any> }
 }
-
 
 export type IdString = `id${string}`
-
-export const IdString = (id:Identity)=>{
-  return 'id'+id.toHexString() as IdString
-}
-
-export const IdentityFromString = (s:IdString)=>{
-  return new Identity(s.slice(2))
-}
+export const IdString = (id:Identity)=>{return 'id'+id.toHexString() as IdString}
+export const IdentityFromString = (s:IdString)=> new Identity(s.slice(2))
+export type WSSURL = `wss${string}` | `ws${string}`
 
 
-export function connectServer(url:string, dbname:string, tokenStore:{get:()=>string, set:(value:string)=>void}) : Promise<ServerConnection> {
+const servers = new Map<WSSURL, Promise<ServerConnection>>()
+type Consumer= (payload:Serial) => void
 
-  return new Promise<ServerConnection>((resolve, reject) => {
+export class ServerConnection {
+  public notifyListeners = new Map<bigint, Consumer>()
+  public returnListeners = new Map<bigint,Map<number, {
+    resolve: (value:any) => void
+    reject: Consumer
+  }>>();
 
-    let store_subs : Map <bigint, ((value:Serial)=>void)[]> = new Map()
+  constructor(
+    public identity: IdString,
+    public server: DbConnection
+  ) {
 
+  }
 
-
-
-
-
-    DbConnection.builder()
-    .withUri(url)
-    .withModuleName(dbname)
-    .withToken(tokenStore.get())
-    .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
-
-      tokenStore.set(token)
-
-      const storeCache = new Map<bigint, string>();
-
-      const hostCache = new Writable<{[key:string]:true}>({})
+  static connect(url:WSSURL, token:string): Promise<[ServerConnection, string]> {
 
 
-      conn.subscriptionBuilder()
-      .onApplied(c=>{
+    return new Promise(async (resolve, reject)=>{
 
-        console.log("APPLIED")
 
-        c.db.store.onInsert((c,store)=>{
+      DbConnection.builder()
+      .withUri(url)
+      .withToken(token)
+      .withModuleName("rubox")
+      .onConnect(async (conn: DbConnection, identity: Identity, token: string) => {
 
-          if (store.owner.data == identity.data){
-            storeCache.set(store.key, store.content)
-            store_subs.get(store.key)?.forEach(sub=>sub(JSON.parse(store.content)))
+        localStorage.setItem(`${url}-token`, token)
+        let server = new ServerConnection(IdString(identity), conn)
+        const handleNotify = (note:Notification) => {server.notifyListeners.get(note.app)?.(JSON.parse(note.arg))}
+        const handleReturn = (ret:Return) => {
+
+          if (!ret.app){return}
+
+          if (ret.logs.length > 0){
+            console.info("logs:");
+            ret.logs.forEach(l => console.log(l))
           }
+          let expector = server.returnListeners.get(ret.app)?.get(ret.id);
+          if (!expector){return}
+          (ret.result.tag == "Ok" ? expector.resolve(JSON.parse(ret.result.value)) : expector.reject(ret.result.value))
 
+        }
+
+        conn.subscriptionBuilder()
+        .onApplied(c=>{
+          c.db.notification.onInsert((c, note:Notification)=>{handleNotify(note)})
+          c.db.returns.onInsert((c, ret:Return)=>{handleReturn(ret)})
+          c.db.notification.onUpdate((c, old, note:Notification)=>{handleNotify(note)})
+          c.db.returns.onUpdate((c, old, ret:Return)=>{handleReturn(ret)})
         })
-
-        c.db.host.onInsert((c,host:Host)=>{
-
-          if (host.host.data == identity.data){
-            hostCache.update(h=>{
-              h[host.app.toString()] = true
-              return h
-            },true)
+        .onError(console.error)
+        .subscribe([
+          `SELECT * FROM notification WHERE target = '${identity.toHexString()}'`,
+          `SELECT * FROM returns WHERE owner = '${identity.toHexString()}'`,
+        ])
+        conn.reducers.onCallLambda((c, o, a, l, id, arg)=>{
+          if (c.event.status.tag == "Failed") {
+            console.warn("onCallLambda failed", id, c.event.status.value);
+            server.returnListeners.get(a)?.get(id)?.reject(c.event.status.value)
           }
-          
         })
-
-        c.db.store.onUpdate((c,old,news)=>{
-          console.log("UPDATE", old, news)
-          if (news.owner.data == identity.data){
-              storeCache.set(news.key, news.content)
-              store_subs.get(news.key)?.forEach(sub=>sub(JSON.parse(news.content)))
-          }
-        })
-
-        c.reducers.onCallLambda(async (ctx, other, app, lam, arg)=>{
-          const key = await hashFunArgs(identity, other, app, lam, arg)
-          if (ctx.event.status.tag == "Failed") lamQueue.get(key)?.reject(ctx.event.status.value)
-          else {
-            try{
-              let val = storeCache.get(key)
-              if (val == "undefined") lamQueue.get(key)?.resolve(undefined)
-              else {
-
-                let [res, logs] = JSON.parse(val)
-                if (logs){
-                  console.log("remote logs:")
-                  logs.forEach(l=>console.log(JSON.parse(l)))
-                }
-                lamQueue.get(key)?.resolve(res)
-              }
-            }catch(e){
-
-              lamQueue.get(key)?.resolve(null)
-            }
-          }
-
-          lamQueue.delete(key)
-        })
-
+        resolve([server, token])
       })
+      .onConnectError(e=>{
+        reject(e)
+      })
+      .build()
+    })
+  }
+
+  users(app:bigint): Promise<IdString[]>{
+
+    return new Promise(async (resolve, reject)=>{
+      this.server.subscriptionBuilder()
+      .onApplied(c=>{resolve(Array.from(c.db.host.iter()).filter(h=>h.app == app).map(h=>IdString(h.host)))})
       .onError(console.error)
-      
-      .subscribe([
-        `SELECT * FROM store WHERE owner = '${identity.toHexString()}'`,
-        `SELECT * FROM app`,
-        `SELECT * FROM lambda`,
-        `SELECT * FROM host WHERE host = '${identity.toHexString()}'`,
-      ])
-
-
-
-      const handle : <C>(box:ServerApp<C>) => Promise<AppHandle<C>> = async <C> (box:ServerApp<C>) => {
-
-        let hashed = await hashApp({
-          setup:box.loadApp.toString(),
-          functions: Object.values(box.api).map(fn=>fn.toString())
-        })
-
-        conn.reducers.publish({
-          setup:box.loadApp.toString(),
-          functions: Object.values(box.api).map(fn=>fn.toString())
-        })
-
-
-        let call : (target:IdString, fn:APIFunction<C>, arg?:Serial) => Promise<any> = async (target, fn, arg = null) => {
-          // console.log("CALL", target, fn, arg)
-          return new Promise<any>(async (resolve, reject) => {
-            const argstring = JSON.stringify(arg);
-            const funstring = fn.toString()
-
-            const callH = await hashFunArgs(identity, IdentityFromString(target), hashed.hash, await hashString(funstring), argstring)
-            const lamH = await hashString(funstring)
-
-            lamQueue.set(callH, {resolve, reject})
-            conn.reducers.callLambda(IdentityFromString(target), hashed.hash, lamH, argstring)
-          })
-        }
-
-        let users : () => Promise<IdString[]> =  () => {
-
-          return new Promise<IdString[]>(async (resolve, reject) => {
-          let sub = conn.subscriptionBuilder()
-          .onApplied(c=>{
-            sub.unsubscribe()
-            resolve(Array.from(c.db.host.iter()).filter(h=>h.app == hashed.hash).map(h=>IdString(h.host)))
-          })
-          .onError(reject)
-          .subscribe([
-            `SELECT * FROM host WHERE app = '${hashed.hash}'`,
-          ])})
-        }
-
-        let apphandle: AppHandle<C> = {
-          call,
-          users,
-          subscribe: async (keyname:string, callback:(value:string)=>void) => {
-            const key = await hashStoreKey(identity, hashed.hash, keyname)
-            if (!store_subs.has(key))store_subs.set(key, [])
-            store_subs.get(key)?.push(callback)
-          }
-        }
-
-        return new Promise<AppHandle<C>>((resolve, reject)=>{
-          let hash = hashed.hash.toString()
-          hostCache.subscribe(h=>{if (h[hash])resolve(apphandle)})
-          conn.reducers.sethost(hashed.hash, true)
-
-        })
-
-      }
-
-      const lamQueue = new Map<bigint, {resolve:(result:string)=>void, reject:(error:string)=>void}>();
-
-
-
-
-
-      resolve({identity: IdString(identity), handle})
-   
-    }).build()
-  })
-  
+      .subscribe([`SELECT * FROM host WHERE app = ${ app.toString()}`])
+    })
+  }
 }
 
+export class AppHandle {
 
+  private callCounter: number = 0
+  public identity: IdString
+  public app: Promise<bigint>
+
+
+  constructor(
+    public server: ServerConnection,
+    box: ServerApp<any>,
+    onNotify: (payload:Serial) => void
+  ){
+    this.identity = server.identity
+
+    let appData = {
+      setup:box.loadApp.toString(),
+      functions: Object.values(box.api).map(fn=>fn.toString())
+    }
+    server.server.reducers.publish(appData)
+    this.app = hashApp(appData).then(app=>{
+      let appHash = app.hash
+      server.notifyListeners.set(appHash, onNotify)
+      server.returnListeners.set(appHash, new Map())
+      server.server.reducers.setHost(appHash, true)
+      return app.hash
+    })
+  }
+
+  async call<R, A extends Serial>(target:IdString, fn:APIFunction<any, A, R>, arg:Serial = null): Promise<R>{
+    if (!target.startsWith("id")){
+      throw new Error("target must be an id: " + target)
+    }
+    if (!fn){
+      throw new Error("fn must be a function: " + fn)
+    }
+    return new Promise(async (resolve, reject)=>{
+      let funHash = await hashString(fn.toString())
+      let appHash = await this.app
+      this.server.returnListeners.get(appHash)?.set(this.callCounter, {resolve,reject})
+      this.server.server.reducers.callLambda( IdentityFromString(target), appHash, funHash, this.callCounter, JSON.stringify(arg))
+      this.callCounter += 1
+    })
+  }
+  async users():Promise<IdString[]>{
+    return this.server.users(await this.app)
+  }
+}
